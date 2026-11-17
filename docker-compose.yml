@@ -1,0 +1,250 @@
+version: "3.9"
+
+# ─── TrafficX Full Stack ───────────────────────────────────────────────────────
+# Start: docker compose up -d
+# Stop:  docker compose down
+# Logs:  docker compose logs -f <service>
+
+networks:
+  trafficx:
+    driver: bridge
+
+volumes:
+  cassandra_data:
+  kafka_data:
+
+services:
+
+  # ── Apache Kafka (KRaft mode — no ZooKeeper) ──────────────────────────────
+  kafka:
+    image: bitnami/kafka:3.6.1
+    container_name: trafficx-kafka
+    hostname: kafka
+    networks:
+      - trafficx
+    ports:
+      - "9092:9092"      # external clients
+      - "9093:9093"      # controller
+    volumes:
+      - kafka_data:/bitnami/kafka
+    environment:
+      # KRaft settings
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_NUM_PARTITIONS: 3
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_CFG_LOG_RETENTION_HOURS: 24
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server kafka:9092 --list || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── Apache Cassandra ─────────────────────────────────────────────────────
+  cassandra:
+    image: cassandra:4.1.4
+    container_name: trafficx-cassandra
+    hostname: cassandra
+    networks:
+      - trafficx
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+      - ./infrastructure/cassandra:/docker-entrypoint-initdb.d
+    environment:
+      CASSANDRA_CLUSTER_NAME: TrafficX
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: SimpleSnitch
+      HEAP_NEWSIZE: 128M
+      MAX_HEAP_SIZE: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces'"]
+      interval: 30s
+      timeout: 15s
+      retries: 15
+      start_period: 60s
+
+  # ── Kafka Topic Initialiser (runs once then exits) ───────────────────────
+  kafka-init:
+    image: bitnami/kafka:3.6.1
+    container_name: trafficx-kafka-init
+    networks:
+      - trafficx
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      echo 'Creating Kafka topics...'
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic traffic.raw          --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic traffic.processed    --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic traffic.predictions  --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic traffic.incidents    --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic traffic.node_status  --partitions 3 --replication-factor 1
+      echo 'Topics created.'
+      kafka-topics.sh --bootstrap-server kafka:9092 --list
+      "
+    restart: "no"
+
+  # ── Cassandra Schema Init ────────────────────────────────────────────────
+  cassandra-init:
+    image: cassandra:4.1.4
+    container_name: trafficx-cassandra-init
+    networks:
+      - trafficx
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/cassandra:/init
+    entrypoint: ["/bin/bash", "-c"]
+    command: "cqlsh cassandra -f /init/schema.cql && echo 'Schema applied.'"
+    restart: "no"
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: trafficx-backend
+    networks:
+      - trafficx
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_KEYSPACE: trafficx
+    depends_on:
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Traffic Producer ──────────────────────────────────────────────────────
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: trafficx-producer
+    networks:
+      - trafficx
+    env_file:
+      - .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CASSANDRA_CONTACT_POINTS: cassandra
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      cassandra-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── P2P Edge Node A ───────────────────────────────────────────────────────
+  node-a:
+    build:
+      context: ./nodes
+      dockerfile: Dockerfile
+    container_name: trafficx-node-a
+    networks:
+      - trafficx
+    ports:
+      - "7001:7001"
+    env_file:
+      - .env
+    environment:
+      NODE_ID: NODE-A
+      NODE_ZONE: zone-a
+      NODE_HOST: node-a
+      NODE_PORT: "7001"
+      PEER_ADDRESSES: "node-b:7002,node-c:7003"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CASSANDRA_CONTACT_POINTS: cassandra
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── P2P Edge Node B ───────────────────────────────────────────────────────
+  node-b:
+    build:
+      context: ./nodes
+      dockerfile: Dockerfile
+    container_name: trafficx-node-b
+    networks:
+      - trafficx
+    ports:
+      - "7002:7002"
+    env_file:
+      - .env
+    environment:
+      NODE_ID: NODE-B
+      NODE_ZONE: zone-b
+      NODE_HOST: node-b
+      NODE_PORT: "7002"
+      PEER_ADDRESSES: "node-a:7001,node-c:7003"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CASSANDRA_CONTACT_POINTS: cassandra
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── P2P Edge Node C ───────────────────────────────────────────────────────
+  node-c:
+    build:
+      context: ./nodes
+      dockerfile: Dockerfile
+    container_name: trafficx-node-c
+    networks:
+      - trafficx
+    ports:
+      - "7003:7003"
+    env_file:
+      - .env
+    environment:
+      NODE_ID: NODE-C
+      NODE_ZONE: zone-c
+      NODE_HOST: node-c
+      NODE_PORT: "7003"
+      PEER_ADDRESSES: "node-a:7001,node-b:7002"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CASSANDRA_CONTACT_POINTS: cassandra
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: trafficx-frontend
+    networks:
+      - trafficx
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend

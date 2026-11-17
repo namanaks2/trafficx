@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
+import { ViewModeProvider } from './context/ViewModeContext';
+import MobileFrame from './components/ui/MobileFrame';
 
 // Auth pages
 import Login from './pages/auth/Login';
@@ -17,6 +19,7 @@ import Analytics from './pages/analytics/Analytics';
 import DataSources from './pages/datasources/DataSources';
 import Notifications from './pages/notifications/Notifications';
 import Settings from './pages/settings/Settings';
+import SystemHealth from './pages/system/SystemHealth';
 
 function ProtectedRoute({ children, permission }) {
   const { user, loading, hasPermission } = useAuth();
@@ -37,19 +40,20 @@ function AppRoutes() {
   const { user } = useAuth();
   return (
     <Routes>
-      <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
+      <Route path="/login"    element={user ? <Navigate to="/dashboard" /> : <Login />} />
       <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <Register />} />
 
-      <Route path="/dashboard" element={<ProtectedRoute permission="dashboard"><Dashboard /></ProtectedRoute>} />
-      <Route path="/map" element={<ProtectedRoute permission="map"><TrafficMap /></ProtectedRoute>} />
-      <Route path="/prediction" element={<ProtectedRoute permission="prediction"><Prediction /></ProtectedRoute>} />
-      <Route path="/network" element={<ProtectedRoute permission="network"><Network /></ProtectedRoute>} />
-      <Route path="/incidents" element={<ProtectedRoute permission="incidents"><Incidents /></ProtectedRoute>} />
-      <Route path="/routes" element={<ProtectedRoute permission="routes"><SmartRoutes /></ProtectedRoute>} />
-      <Route path="/analytics" element={<ProtectedRoute permission="analytics"><Analytics /></ProtectedRoute>} />
-      <Route path="/datasources" element={<ProtectedRoute permission="datasources"><DataSources /></ProtectedRoute>} />
-      <Route path="/notifications" element={<ProtectedRoute permission="notifications"><Notifications /></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute permission="settings"><Settings /></ProtectedRoute>} />
+      <Route path="/dashboard"    element={<ProtectedRoute permission="dashboard"><Dashboard /></ProtectedRoute>} />
+      <Route path="/map"          element={<ProtectedRoute permission="map"><TrafficMap /></ProtectedRoute>} />
+      <Route path="/prediction"   element={<ProtectedRoute permission="prediction"><Prediction /></ProtectedRoute>} />
+      <Route path="/network"      element={<ProtectedRoute permission="network"><Network /></ProtectedRoute>} />
+      <Route path="/incidents"    element={<ProtectedRoute permission="incidents"><Incidents /></ProtectedRoute>} />
+      <Route path="/routes"       element={<ProtectedRoute permission="routes"><SmartRoutes /></ProtectedRoute>} />
+      <Route path="/analytics"    element={<ProtectedRoute permission="analytics"><Analytics /></ProtectedRoute>} />
+      <Route path="/datasources"  element={<ProtectedRoute permission="datasources"><DataSources /></ProtectedRoute>} />
+      <Route path="/notifications"element={<ProtectedRoute permission="notifications"><Notifications /></ProtectedRoute>} />
+      <Route path="/settings"     element={<ProtectedRoute permission="settings"><Settings /></ProtectedRoute>} />
+      <Route path="/system"       element={<ProtectedRoute permission="dashboard"><SystemHealth /></ProtectedRoute>} />
 
       <Route path="/" element={<Navigate to="/dashboard" />} />
       <Route path="*" element={<Navigate to="/dashboard" />} />
@@ -60,11 +64,15 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppProvider>
-          <AppRoutes />
-        </AppProvider>
-      </AuthProvider>
+      <ViewModeProvider>
+        <AuthProvider>
+          <AppProvider>
+            <MobileFrame>
+              <AppRoutes />
+            </MobileFrame>
+          </AppProvider>
+        </AuthProvider>
+      </ViewModeProvider>
     </BrowserRouter>
   );
 }

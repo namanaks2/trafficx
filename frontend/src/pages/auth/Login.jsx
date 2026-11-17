@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Eye, EyeOff, Zap, AlertCircle, ArrowRight, Activity, Network, Shield } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Eye, EyeOff, Zap, AlertCircle, ArrowRight, Activity, Network, Shield, X, Mail } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import ViewToggle from '../../components/ui/ViewToggle';
 
 function TrafficAnimation() {
   return (
@@ -104,6 +105,9 @@ export default function Login() {
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -128,20 +132,30 @@ export default function Login() {
     if (result.success) navigate('/dashboard');
   };
 
+  const handleForgotPassword = () => {
+    if (!forgotEmail || !/\S+@\S+\.\S+/.test(forgotEmail)) return;
+    setForgotSent(true);
+    setTimeout(() => { setShowForgotModal(false); setForgotSent(false); setForgotEmail(''); }, 2000);
+  };
+
   return (
     <div className="min-h-screen bg-bg-primary flex">
       {/* Left — Form */}
       <div className="w-full lg:w-[45%] flex flex-col justify-center px-6 md:px-12 lg:px-16 py-12">
         <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
           {/* Logo */}
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-xl bg-accent-blue/20 border border-accent-blue/40 flex items-center justify-center shadow-glow-blue">
-              <Zap size={20} className="text-accent-blue" />
+          <div className="flex items-center justify-between gap-3 mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-accent-blue/20 border border-accent-blue/40 flex items-center justify-center shadow-glow-blue">
+                <Zap size={20} className="text-accent-blue" />
+              </div>
+              <div>
+                <div className="text-lg font-bold text-text-primary tracking-widest">TRAFFICX</div>
+                <div className="text-[10px] text-text-muted tracking-widest uppercase">Intelligence Network</div>
+              </div>
             </div>
-            <div>
-              <div className="text-lg font-bold text-text-primary tracking-widest">TRAFFICX</div>
-              <div className="text-[10px] text-text-muted tracking-widest uppercase">Intelligence Network</div>
-            </div>
+            {/* View mode toggle — visible on login page */}
+            <ViewToggle variant="login" />
           </div>
 
           <h2 className="text-2xl font-bold text-text-primary mb-1">Welcome back</h2>
@@ -171,7 +185,7 @@ export default function Login() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-sm font-medium text-text-secondary">Password</label>
-                <button type="button" className="text-xs text-accent-blue hover:underline">Forgot password?</button>
+                <button type="button" onClick={() => setShowForgotModal(true)} className="text-xs text-accent-blue hover:underline">Forgot password?</button>
               </div>
               <div className="relative">
                 <input
@@ -242,6 +256,36 @@ export default function Login() {
           </p>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      <AnimatePresence>
+        {showForgotModal && (
+          <div className="fixed inset-0 bg-bg-primary/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="glass-card rounded-2xl p-6 w-full max-w-sm border border-border-default">
+              <h3 className="text-base font-bold text-text-primary mb-1">Reset Password</h3>
+              <p className="text-xs text-text-muted mb-4">Enter your email and we'll send reset instructions.</p>
+              {!forgotSent ? (
+                <>
+                  <div className="relative mb-3">
+                    <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                    <input type="email" className="input-field pl-9" placeholder="you@trafficx.io"
+                      value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowForgotModal(false)} className="btn-secondary flex-1 text-sm">Cancel</button>
+                    <button onClick={handleForgotPassword} className="btn-primary flex-1 text-sm">Send Reset Link</button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-4">
+                  <div className="text-status-success text-sm font-medium">✓ Reset link sent (demo)</div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
