@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Lock, Bell, Shield, Eye, EyeOff, CheckCircle, AlertCircle, ChevronRight } from 'lucide-react';
+import { User, Lock, Bell, Shield, Eye, EyeOff, CheckCircle, AlertCircle, Palette, Sun, Moon, Monitor, Smartphone, BarChart3, Database, Network, ServerCog, ArrowUpRight } from 'lucide-react';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
+import { useTheme } from '../../context/ThemeContext';
+import { useViewMode } from '../../context/ViewModeContext';
+import { useNavigate } from 'react-router-dom';
 
 const ROLE_INFO = {
   administrator:    { label:'Administrator',    color:'text-status-critical', border:'border-status-critical/20', bg:'bg-status-critical/10',  desc:'Full system access — manage all users, sources and configuration.' },
@@ -23,6 +26,9 @@ function Toggle({ active, onToggle }) {
 
 export default function Settings() {
   const { user, updateProfile } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const { mode, setMobile, setDesktop } = useViewMode();
+  const navigate = useNavigate();
   const [tab, setTab] = useState('profile');
   const [name,    setName]    = useState(user?.name || '');
   const [saved,   setSaved]   = useState(false);
@@ -58,6 +64,7 @@ export default function Settings() {
     { id:'profile',       label:'Profile', icon:User },
     { id:'security',      label:'Security',icon:Lock },
     { id:'notifications', label:'Alerts',  icon:Bell },
+    { id:'appearance',    label:'Appearance', icon:Palette },
     { id:'role',          label:'Role',    icon:Shield },
   ];
 
@@ -151,6 +158,81 @@ export default function Settings() {
                   <Toggle active={secToggles[s.key]} onToggle={() => setSecToggles(p=>({...p,[s.key]:!p[s.key]}))} />
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Appearance */}
+        {tab === 'appearance' && (
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-sm font-bold text-text-primary mb-1">Appearance</h3>
+              <p className="text-xs text-text-muted">Choose how TrafficX is presented.</p>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-2">Theme</p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id:'dark', label:'Dark', icon:Moon },
+                  { id:'light', label:'Light', icon:Sun },
+                ].map(({ id, label, icon: Icon }) => (
+                  <button key={id} onClick={() => setTheme(id)}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      theme === id
+                        ? 'border-accent-blue bg-accent-blue/10'
+                        : 'border-border-subtle bg-bg-secondary hover:border-border-default'
+                    }`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <Icon size={16} className={theme === id ? 'text-accent-blue' : 'text-text-secondary'} />
+                      {theme === id && <CheckCircle size={14} className="text-accent-blue" />}
+                    </div>
+                    <p className="text-xs font-semibold text-text-primary">{label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-2">Layout</p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id:'desktop', label:'Desktop', icon:Monitor, action:setDesktop },
+                  { id:'mobile', label:'Mobile', icon:Smartphone, action:setMobile },
+                ].map(({ id, label, icon: Icon, action }) => (
+                  <button key={id} onClick={action}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      mode === id
+                        ? 'border-accent-blue bg-accent-blue/10'
+                        : 'border-border-subtle bg-bg-secondary hover:border-border-default'
+                    }`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <Icon size={16} className={mode === id ? 'text-accent-blue' : 'text-text-secondary'} />
+                      {mode === id && <CheckCircle size={14} className="text-accent-blue" />}
+                    </div>
+                    <p className="text-xs font-semibold text-text-primary">{label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-border-subtle">
+              <p className="text-xs font-semibold text-text-secondary mb-2">Operations</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label:'Analytics', icon:BarChart3, path:'/analytics' },
+                  { label:'Data Sources', icon:Database, path:'/datasources' },
+                  { label:'Network', icon:Network, path:'/network' },
+                  { label:'System Health', icon:ServerCog, path:'/system' },
+                ].map(({ label, icon: Icon, path }) => (
+                  <button key={path} onClick={() => navigate(path)}
+                    className="flex items-center gap-2 p-3 rounded-xl border border-border-subtle bg-bg-secondary text-left hover:border-border-accent transition-colors">
+                    <Icon size={14} className="text-accent-blue" />
+                    <span className="flex-1 text-xs font-medium text-text-primary">{label}</span>
+                    <ArrowUpRight size={12} className="text-text-muted" />
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}

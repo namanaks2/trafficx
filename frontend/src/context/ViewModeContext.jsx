@@ -4,7 +4,7 @@ const ViewModeContext = createContext(null);
 
 export function ViewModeProvider({ children }) {
   const [mode, setMode] = useState(() => {
-    return localStorage.getItem('trafficx_view_mode') || 'mobile';
+    return localStorage.getItem('trafficx_view_mode') || 'desktop';
   });
 
   const toggle = () => {

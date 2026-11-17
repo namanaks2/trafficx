@@ -8,10 +8,10 @@ export default {
     extend: {
       colors: {
         bg: {
-          primary: '#080D17',
-          secondary: '#101827',
-          card: '#141F30',
-          elevated: '#1A2640',
+          primary: 'var(--bg-primary)',
+          secondary: 'var(--bg-secondary)',
+          card: 'var(--bg-card)',
+          elevated: 'var(--bg-elevated)',
         },
         accent: {
           blue: '#38BDF8',
@@ -25,19 +25,19 @@ export default {
           info: '#38BDF8',
         },
         text: {
-          primary: '#F8FAFC',
-          secondary: '#94A3B8',
-          muted: '#475569',
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          muted: 'var(--text-muted)',
         },
         border: {
-          subtle: '#1E2D45',
-          default: '#243550',
-          accent: '#38BDF855',
+          subtle: 'var(--border-subtle)',
+          default: 'var(--border-default)',
+          accent: 'var(--border-accent)',
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        sans: ['Manrope', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'Fira Code', 'monospace'],
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',

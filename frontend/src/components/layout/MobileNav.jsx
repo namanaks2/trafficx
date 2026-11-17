@@ -13,22 +13,17 @@ const BOTTOM = [
   { path: '/dashboard', label: 'Home',      icon: LayoutDashboard },
   { path: '/map',       label: 'Map',       icon: Map },
   { path: '/incidents', label: 'Incidents', icon: AlertTriangle },
-  { path: '/prediction',label: 'AI',        icon: Brain },
-  { path: '/routes',    label: 'Routes',    icon: Route },
 ];
 
 const ALL_NAV = [
-  { path: '/dashboard',    label: 'Overview',      icon: LayoutDashboard },
-  { path: '/map',          label: 'Live Map',       icon: Map },
-  { path: '/prediction',   label: 'AI Prediction', icon: Brain },
-  { path: '/network',      label: 'P2P Network',   icon: Network },
-  { path: '/incidents',    label: 'Incidents',     icon: AlertTriangle },
-  { path: '/routes',       label: 'Smart Routes',  icon: Route },
-  { path: '/analytics',    label: 'Analytics',     icon: BarChart3 },
-  { path: '/datasources',  label: 'Data Sources',  icon: Database },
-  { path: '/system',       label: 'System Health', icon: ServerCog },
-  { path: '/notifications',label: 'Alerts',        icon: Bell },
-  { path: '/settings',     label: 'Settings',      icon: Settings },
+  { path: '/prediction',    label: 'AI Predictions', icon: Brain, group: 'Plan' },
+  { path: '/routes',        label: 'Smart Routes',   icon: Route, group: 'Plan' },
+  { path: '/analytics',     label: 'Analytics',      icon: BarChart3, group: 'Operations' },
+  { path: '/datasources',   label: 'Data Sources',   icon: Database, group: 'Operations' },
+  { path: '/network',       label: 'Network',        icon: Network, group: 'Operations' },
+  { path: '/system',        label: 'System Health',  icon: ServerCog, group: 'Operations' },
+  { path: '/notifications', label: 'Alerts',         icon: Bell, group: 'Account' },
+  { path: '/settings',      label: 'Settings',       icon: Settings, group: 'Account' },
 ];
 
 export default function MobileNav() {
@@ -112,27 +107,32 @@ export default function MobileNav() {
 
               {/* Nav grid */}
               <div className="overflow-y-auto px-4 py-3 pb-6">
-                <div className="grid grid-cols-3 gap-2.5">
-                  {ALL_NAV.map(({ path, label, icon: Icon }) => {
-                    const active = location.pathname === path;
-                    const badge  = path === '/notifications' && unreadCount > 0;
-                    return (
-                      <button key={path} onClick={() => { navigate(path); setOpen(false); }}
-                        className="flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all"
-                        style={{
-                          background: active ? 'rgba(56,189,248,0.1)' : 'rgba(20,31,48,0.6)',
-                          borderColor: active ? 'rgba(56,189,248,0.4)' : 'rgba(30,45,69,0.6)',
-                          color: active ? '#38BDF8' : '#94A3B8',
-                        }}>
-                        <div className="relative">
-                          <Icon size={22} />
-                          {badge && <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-status-critical rounded-full text-[7px] flex items-center justify-center text-white font-bold">{unreadCount}</span>}
-                        </div>
-                        <span className="text-[10px] font-medium leading-tight text-center">{label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {['Plan', 'Operations', 'Account'].map(group => (
+                  <div key={group} className="mb-4 last:mb-0">
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold mb-2">{group}</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {ALL_NAV.filter(item => item.group === group).map(({ path, label, icon: Icon }) => {
+                        const active = location.pathname === path;
+                        const badge = path === '/notifications' && unreadCount > 0;
+                        return (
+                          <button key={path} onClick={() => { navigate(path); setOpen(false); }}
+                            className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all"
+                            style={{
+                              background: active ? 'rgba(56,189,248,0.1)' : 'var(--bg-card)',
+                              borderColor: active ? 'rgba(56,189,248,0.4)' : 'var(--border-subtle)',
+                              color: active ? '#38BDF8' : 'var(--text-secondary)',
+                            }}>
+                            <div className="relative">
+                              <Icon size={20} />
+                              {badge && <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-status-critical rounded-full text-[7px] flex items-center justify-center text-white font-bold">{unreadCount}</span>}
+                            </div>
+                            <span className="text-[9px] font-medium leading-tight text-center">{label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
 
                 {/* User row */}
                 <div className="mt-4 flex items-center gap-3 p-3 rounded-2xl border border-border-subtle bg-bg-card">

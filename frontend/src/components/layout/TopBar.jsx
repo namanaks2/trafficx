@@ -4,7 +4,7 @@ import { Bell, Maximize2, Minimize2, Wifi, WifiOff, ChevronDown } from 'lucide-r
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
-import ViewToggle from '../ui/ViewToggle';
+import ThemeToggle from '../ui/ThemeToggle';
 
 export default function TopBar({ title, subtitle }) {
   const { unreadCount, notifications, markNotificationRead,
@@ -38,8 +38,8 @@ export default function TopBar({ title, subtitle }) {
           {liveUpdates ? 'Live' : 'Off'}
         </button>
 
-        {/* View toggle — compact */}
-        <ViewToggle />
+        {/* Theme */}
+        <ThemeToggle compact />
 
         {/* Notifications */}
         <div className="relative">

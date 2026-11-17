@@ -52,8 +52,8 @@ export default function AppLayout({ children, title, subtitle }) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
               /* Extra bottom padding clears the mobile bottom nav */
-              className="p-3 pb-24"
-              style={showDesktopSidebar ? { paddingBottom: '1.25rem' } : {}}
+              className="p-3 pb-24 md:p-5 lg:p-7 xl:px-8"
+              style={showDesktopSidebar ? { maxWidth: 1600, margin: '0 auto', width: '100%' } : {}}
             >
               {children}
             </motion.div>

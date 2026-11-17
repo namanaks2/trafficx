@@ -12,13 +12,8 @@ const NAV = [
   { path: '/dashboard',    label: 'Overview',       icon: LayoutDashboard },
   { path: '/map',          label: 'Live Map',        icon: Map },
   { path: '/prediction',   label: 'AI Prediction',  icon: Brain },
-  { path: '/network',      label: 'P2P Network',    icon: Network },
   { path: '/incidents',    label: 'Incidents',      icon: AlertTriangle },
   { path: '/routes',       label: 'Smart Routes',   icon: Route },
-  { path: '/analytics',    label: 'Analytics',      icon: BarChart3 },
-  { path: '/datasources',  label: 'Data Sources',   icon: Database },
-  { path: '/system',       label: 'System Health',  icon: ServerCog },
-  { path: '/notifications',label: 'Alerts',         icon: Bell },
   { path: '/settings',     label: 'Settings',       icon: Settings },
 ];
 

@@ -71,7 +71,7 @@ export default function Dashboard() {
       )}
 
       {/* KPI grid — 2 cols always, never overflow */}
-      <div className="grid grid-cols-2 gap-2.5 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2.5 mb-4">
         {kpiCards.map((card, i) => (
           <KpiCard key={card.title} {...card} index={i} compact />
         ))}

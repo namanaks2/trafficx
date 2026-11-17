@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
 import { ViewModeProvider } from './context/ViewModeContext';
+import { ThemeProvider } from './context/ThemeContext';
 import MobileFrame from './components/ui/MobileFrame';
 
 // Auth pages
@@ -64,15 +65,17 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ViewModeProvider>
-        <AuthProvider>
-          <AppProvider>
-            <MobileFrame>
-              <AppRoutes />
-            </MobileFrame>
-          </AppProvider>
-        </AuthProvider>
-      </ViewModeProvider>
+      <ThemeProvider>
+        <ViewModeProvider>
+          <AuthProvider>
+            <AppProvider>
+              <MobileFrame>
+                <AppRoutes />
+              </MobileFrame>
+            </AppProvider>
+          </AuthProvider>
+        </ViewModeProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }
