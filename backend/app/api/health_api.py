@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+﻿from fastapi import APIRouter
 from ..db.cassandra_client import cassandra
 from ..kafka.producer import producer
 from ..kafka.consumer import consumer
@@ -12,5 +12,6 @@ async def full_health():
         "api":       "ok",
         "kafka":     {"producer": producer.connected, "consumer": consumer.connected},
         "cassandra": cassandra.status(),
-        "lstm":      {"loaded": lstm_predictor.loaded, "model": "lstm-v1" if lstm_predictor.loaded else "rule-based"},
+        "lstm":      {"loaded": lstm_predictor.loaded, "model": "lstm-v2" if lstm_predictor.loaded else "rule-based-fallback"},
     }
+

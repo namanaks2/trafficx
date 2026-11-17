@@ -1,233 +1,405 @@
 """
-TrafficX Edge Node — Gossip-based P2P implementation.
+TrafficX HTTP gossip edge node.
 
-Each node runs an HTTP server (FastAPI micro-service) and gossips with peers.
-"P2P" here means: each node independently initiates connections to its peers,
-exchanges state without a central coordinator, and operates after peer failures.
-
-This is an honest multi-process gossip simulation over HTTP/JSON —
-NOT a libp2p DHT — which is clearly stated in the architecture docs.
+This is an honest, process-level HTTP gossip implementation; it is not libp2p.
 """
+from __future__ import annotations
+
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import logging
-import math
 import os
 import random
+import sqlite3
 import uuid
-from datetime import datetime, timezone
+from collections import OrderedDict, deque
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 try:
     from aiokafka import AIOKafkaProducer
     KAFKA_OK = True
 except ImportError:
+    AIOKafkaProducer = None
     KAFKA_OK = False
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+try:
+    from ledger import ChainedLedger
+except ImportError:
+    from .ledger import ChainedLedger
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("edge-node")
 
-# ── Config from environment ───────────────────────────────────────────────────
-NODE_ID       = os.getenv("NODE_ID", "NODE-A")
-NODE_ZONE     = os.getenv("NODE_ZONE", "zone-a")
-NODE_HOST     = os.getenv("NODE_HOST", "0.0.0.0")
-NODE_PORT     = int(os.getenv("NODE_PORT", "7001"))
-PEER_ADDRS    = [p.strip() for p in os.getenv("PEER_ADDRESSES", "").split(",") if p.strip()]
-KAFKA_BOOT    = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-HEARTBEAT_S   = int(os.getenv("HEARTBEAT_INTERVAL_SEC", "5"))
-GOSSIP_S      = int(os.getenv("GOSSIP_INTERVAL_SEC", "8"))
+NODE_ID = os.getenv("NODE_ID", "NODE-A")
+NODE_ZONE = os.getenv("NODE_ZONE", "zone-a")
+NODE_HOST = os.getenv("NODE_HOST", "0.0.0.0")
+NODE_PORT = int(os.getenv("NODE_PORT", "7001"))
+PEER_ADDRS = [p.strip() for p in os.getenv("PEER_ADDRESSES", "").split(",") if p.strip()]
+KAFKA_BOOT = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+HEARTBEAT_S = int(os.getenv("HEARTBEAT_INTERVAL_SEC", "5"))
+GOSSIP_S = int(os.getenv("GOSSIP_INTERVAL_SEC", "8"))
+GOSSIP_FANOUT = int(os.getenv("GOSSIP_FANOUT", "2"))
+NETWORK_SECRET = os.getenv("NETWORK_SECRET", "change-me-in-production")
+ENABLE_SIMULATION = os.getenv("ENABLE_SIMULATION", "false").lower() == "true"
+ALLOWED_ORIGINS = [
+    x.strip() for x in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if x.strip()
+]
+TRAFFIC_TZ = os.getenv("TRAFFIC_TZ", "Asia/Kolkata")
+SPILL_PATH = os.getenv("SPILL_PATH")
 
-# ── Node State ────────────────────────────────────────────────────────────────
+ledger = ChainedLedger(NODE_ID)
+peer_table: dict[str, dict] = {}
+seen_messages: OrderedDict[str, None] = OrderedDict()
+kafka_buffer: deque[dict] = deque(maxlen=10000)
+kafka_dropped = 0
+kafka_connected = False
+signature_rejections = 0
+kafka_producer: Optional[object] = None
+degraded_until: Optional[datetime] = None
+
 state = {
-    "node_id":           NODE_ID,
-    "zone":              NODE_ZONE,
-    "status":            "online",
-    "started_at":        datetime.utcnow().isoformat(),
-    "last_heartbeat":    datetime.utcnow().isoformat(),
-    "peers":             {},          # peer_id → {last_seen, status, summary}
-    "traffic_summary":   {},
+    "node_id": NODE_ID,
+    "zone": NODE_ZONE,
+    "status": "online",
+    "started_at": datetime.now(timezone.utc).isoformat(),
+    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+    "peers": peer_table,
+    "traffic_summary": {},
     "records_processed": 0,
-    "processing_load":   0.0,
-    "ledger":            [],          # last 20 gossip exchanges
+    "processing_load": 0.0,
+    "recent_events": [],
+    "kafka_buffer_size": 0,
+    "kafka_connected": False,
+    "kafka_dropped": 0,
+    "signature_rejections": 0,
 }
 
-kafka_producer: Optional[object] = None
+app = FastAPI(title=f"TrafficX Edge Node {NODE_ID}")
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
-# ── Traffic simulation for this zone ─────────────────────────────────────────
-_speed = 42.0
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def utc_iso(dt: Optional[datetime] = None) -> str:
+    return (dt or now()).isoformat()
+
+
+def is_degraded() -> bool:
+    return degraded_until is not None and now() < degraded_until
+
+
+def canonical_json(payload: dict) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+
+def sign_payload(payload: dict) -> str:
+    return hmac.new(NETWORK_SECRET.encode(), canonical_json(payload), hashlib.sha256).hexdigest()
+
+
+def verify_signature(payload: dict) -> bool:
+    supplied = payload.pop("_signature_check", payload.get("signature", ""))
+    unsigned = dict(payload)
+    unsigned.pop("signature", None)
+    expected = hmac.new(NETWORK_SECRET.encode(), canonical_json(unsigned), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(str(supplied), expected)
+
 
 def generate_zone_summary() -> dict:
-    global _speed
-    hour    = datetime.utcnow().hour
-    is_rush = (7 <= hour <= 9) or (17 <= hour <= 19)
-    target  = 22 if is_rush else 55
-    _speed  = _speed * 0.9 + target * 0.1 + random.gauss(0, 1.5)
-    _speed  = max(5, min(100, _speed))
-    vc      = random.randint(300, 800) if is_rush else random.randint(80, 350)
-    cong    = max(5, min(99, 100 - _speed / 80 * 100))
-    return {
-        "zone":            NODE_ZONE,
-        "avg_speed":       round(_speed, 1),
-        "vehicle_count":   vc,
-        "congestion_pct":  round(cong, 1),
-        "timestamp":       datetime.utcnow().isoformat(),
-        "source_node":     NODE_ID,
+    """Generate one simulated observation using zone-local rolling state."""
+    local = now()
+    hour = local.hour
+    is_rush = 7 <= hour <= 9 or 17 <= hour <= 19
+    target_speed = 22.0 if is_rush else 55.0
+    previous = state["traffic_summary"].get("avg_speed", target_speed)
+    speed = max(5.0, min(100.0, previous * 0.9 + target_speed * 0.1 + random.gauss(0, 1.5)))
+    vc = random.randint(300, 800) if is_rush else random.randint(80, 350)
+    congestion = max(5.0, min(99.0, 100.0 - speed / 80.0 * 100.0))
+    summary = {
+        "zone": NODE_ZONE,
+        "avg_speed": round(speed, 1),
+        "vehicle_count": vc,
+        "congestion_pct": round(congestion, 1),
+        "timestamp": utc_iso(),
+        "source_node": NODE_ID,
+        "source": "traffic-simulated",
     }
+    state["traffic_summary"] = summary
+    state["records_processed"] += 1
+    state["processing_load"] = round(random.uniform(10, 60), 1)
+    return summary
 
 
-# ── FastAPI micro-server ──────────────────────────────────────────────────────
-app = FastAPI(title=f"TrafficX Edge Node {NODE_ID}")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+def mark_degraded(seconds: int):
+    global degraded_until
+    degraded_until = now() + timedelta(seconds=seconds)
+    state["status"] = "degraded"
+
+
+def refresh_peer_statuses():
+    cutoff = now().timestamp() - (3 * GOSSIP_S)
+    for addr, peer in list(peer_table.items()):
+        try:
+            last = datetime.fromisoformat(peer["last_seen"])
+            peer["status"] = "online" if last.timestamp() >= cutoff else "unreachable"
+        except Exception:
+            peer["status"] = "unreachable"
+
+
+async def start_kafka():
+    global kafka_producer, kafka_connected
+    if not KAFKA_OK:
+        return
+    delay = 1
+    while True:
+        try:
+            producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOT, value_serializer=None, key_serializer=None)
+            await producer.start()
+            kafka_producer = producer
+            kafka_connected = True
+            state["kafka_connected"] = True
+            logger.info("Kafka connected")
+            return
+        except Exception as exc:
+            kafka_connected = False
+            state["kafka_connected"] = False
+            logger.warning("Kafka unavailable: %s; retrying in %ss", exc, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30)
+
+
+async def kafka_reconnect_loop():
+    while True:
+        if not kafka_connected:
+            await start_kafka()
+        await asyncio.sleep(2)
+
+
+async def flush_kafka_buffer():
+    global kafka_dropped
+    if not kafka_connected or kafka_producer is None:
+        return
+    while kafka_buffer:
+        item = kafka_buffer[0]
+        try:
+            await kafka_producer.send_and_wait("traffic.node_status", value=json.dumps(item, default=str).encode(), key=NODE_ID.encode())
+            kafka_buffer.popleft()
+        except Exception:
+            return
+    state["kafka_buffer_size"] = len(kafka_buffer)
+    state["kafka_dropped"] = kafka_dropped
+
+
+def enqueue_kafka(item: dict):
+    global kafka_dropped
+    if len(kafka_buffer) == kafka_buffer.maxlen:
+        kafka_dropped += 1
+        if SPILL_PATH:
+            try:
+                with sqlite3.connect(SPILL_PATH) as conn:
+                    conn.execute("CREATE TABLE IF NOT EXISTS spill (payload TEXT)")
+                    conn.execute("INSERT INTO spill(payload) VALUES (?)", (json.dumps(item, default=str),))
+            except Exception as exc:
+                logger.warning("Kafka spill failed: %s", exc)
+    kafka_buffer.append(item)
+    state["kafka_buffer_size"] = len(kafka_buffer)
+    state["kafka_dropped"] = kafka_dropped
+
+
+def make_gossip_message(summary: dict, ttl: int = 5) -> dict:
+    unsigned = {
+        "msg_id": str(uuid.uuid4()),
+        "origin": NODE_ID,
+        "seq": state["records_processed"],
+        "ttl": ttl,
+        "summary": summary,
+        "prediction": {"warming_up": True, "source": "rule-based-simulated"},
+        "known_peers": {addr: {"id": p.get("id"), "last_seen": p.get("last_seen")} for addr, p in peer_table.items()},
+        "timestamp": utc_iso(),
+    }
+    unsigned["signature"] = sign_payload(unsigned)
+    return unsigned
+
+
+def remember_message(msg_id: str) -> bool:
+    if msg_id in seen_messages:
+        return False
+    seen_messages[msg_id] = None
+    if len(seen_messages) > 5000:
+        seen_messages.popitem(last=False)
+    return True
+
+
+async def send_gossip(peer_addresses: list[str], message: dict):
+    async with httpx.AsyncClient(timeout=3) as client:
+        async def send(addr: str):
+            peer_url = f"http://{addr}/gossip"
+            try:
+                r = await client.post(peer_url, json=message)
+                if r.status_code == 200:
+                    peer_table.setdefault(addr, {})["status"] = "online"
+                    peer_table[addr]["last_seen"] = utc_iso()
+                    peer_table[addr]["id"] = r.json().get("node_id", addr)
+            except Exception as exc:
+                logger.warning("Gossip to %s failed: %s", addr, exc)
+        await asyncio.gather(*(send(addr) for addr in peer_addresses))
+
+
+@app.middleware("http")
+async def degraded_gate(request: Request, call_next):
+    if is_degraded() and request.url.path in ("/gossip", "/summary"):
+        return JSONResponse({"detail": "node degraded"}, status_code=503)
+    return await call_next(request)
 
 
 @app.get("/heartbeat")
 async def heartbeat():
-    state["last_heartbeat"] = datetime.utcnow().isoformat()
+    state["last_heartbeat"] = utc_iso()
+    refresh_peer_statuses()
     return {
-        "node_id":    NODE_ID,
-        "zone":       NODE_ZONE,
-        "status":     state["status"],
-        "timestamp":  state["last_heartbeat"],
-        "peers_seen": list(state["peers"].keys()),
+        "node_id": NODE_ID,
+        "zone": NODE_ZONE,
+        "status": "degraded" if is_degraded() else "online",
+        "timestamp": state["last_heartbeat"],
+        "peers_seen": [p.get("id") for p in peer_table.values()],
     }
 
 
 @app.get("/summary")
 async def get_summary():
-    return {**generate_zone_summary(), "peers": {
-        pid: {"status": p["status"], "last_seen": p["last_seen"]}
-        for pid, p in state["peers"].items()
-    }}
+    refresh_peer_statuses()
+    return {**state["traffic_summary"]} if state["traffic_summary"] else generate_zone_summary()
 
 
 @app.post("/gossip")
 async def receive_gossip(payload: dict):
-    sender  = payload.get("node_id", "unknown")
+    global signature_rejections
+    signature = payload.get("signature", "")
+    unsigned = dict(payload)
+    unsigned.pop("signature", None)
+    if not signature or not hmac.compare_digest(signature, sign_payload(unsigned)):
+        signature_rejections += 1
+        state["signature_rejections"] = signature_rejections
+        raise HTTPException(status_code=401, detail="invalid gossip signature")
+
+    msg_id = payload.get("msg_id")
+    if not msg_id or not remember_message(msg_id):
+        return {"ack": True, "node_id": NODE_ID, "duplicate": True}
+
+    sender = payload.get("origin", "unknown")
     summary = payload.get("summary", {})
-    state["peers"][sender] = {
-        "status":    "online",
-        "last_seen": datetime.utcnow().isoformat(),
-        "summary":   summary,
-    }
-    state["ledger"].insert(0, {
-        "type":      "gossip_received",
-        "from":      sender,
-        "timestamp": datetime.utcnow().isoformat(),
-        "summary":   summary,
-    })
-    state["ledger"] = state["ledger"][:20]
+    if summary:
+        state["recent_events"].insert(0, {"type": "gossip_received", "from": sender, "timestamp": utc_iso(), "summary": summary})
+        state["recent_events"] = state["recent_events"][:20]
+        ledger.add_entry(sender, summary.get("zone", "unknown"), summary)
+
+    known_peers = payload.get("known_peers", {})
+    if isinstance(known_peers, dict):
+        for addr, info in known_peers.items():
+            peer_table.setdefault(addr, {"id": info.get("id"), "last_seen": info.get("last_seen"), "summary": {}, "status": "unknown"})
+
+    ttl = int(payload.get("ttl", 1))
+    if ttl > 1:
+        excluded = {sender}
+        candidates = [
+            addr for addr, peer in peer_table.items()
+            if addr not in excluded and peer.get("id") != sender
+        ]
+        targets = random.sample(candidates, min(GOSSIP_FANOUT, len(candidates)))
+        relay = dict(payload)
+        relay["ttl"] = ttl - 1
+        relay["signature"] = sign_payload({k: v for k, v in relay.items() if k != "signature"})
+        if targets:
+            await send_gossip(targets, relay)
     return {"ack": True, "node_id": NODE_ID}
 
 
 @app.get("/state")
 async def get_state():
-    return state
+    refresh_peer_statuses()
+    return {
+        **state,
+        "peers": peer_table,
+        "kafka_buffer_size": len(kafka_buffer),
+        "kafka_connected": kafka_connected,
+        "kafka_dropped": kafka_dropped,
+        "signature_rejections": signature_rejections,
+    }
+
+
+@app.get("/ledger")
+async def get_ledger():
+    return {"chain": ledger.get_recent(), "length": ledger.length}
+
+
+@app.get("/ledger/verify")
+async def verify_ledger():
+    return {"valid": ledger.verify()}
 
 
 @app.post("/simulate/failure")
-async def simulate_failure():
-    """Temporarily mark node as degraded to demo fault tolerance."""
-    state["status"] = "degraded"
-    asyncio.create_task(_recover_after(15))
-    return {"node_id": NODE_ID, "status": "degraded", "recover_in_seconds": 15}
+async def simulate_failure(seconds: int = 15):
+    if not ENABLE_SIMULATION:
+        raise HTTPException(status_code=404, detail="simulation endpoints disabled")
+    mark_degraded(seconds)
+    return {"node_id": NODE_ID, "status": "degraded", "recover_in_seconds": seconds}
 
-
-async def _recover_after(seconds: int):
-    await asyncio.sleep(seconds)
-    state["status"] = "online"
-    logger.info("Node %s recovered.", NODE_ID)
-
-
-# ── Gossip loop ───────────────────────────────────────────────────────────────
 
 async def gossip_loop():
-    async with httpx.AsyncClient(timeout=3) as client:
-        while True:
-            await asyncio.sleep(GOSSIP_S)
-            summary = generate_zone_summary()
-            state["traffic_summary"] = summary
-            state["records_processed"] += 1
-            state["processing_load"] = round(random.uniform(10, 60), 1)
-
-            for peer_addr in PEER_ADDRS:
-                peer_url = f"http://{peer_addr}/gossip"
-                try:
-                    r = await client.post(peer_url, json={
-                        "node_id":  NODE_ID,
-                        "zone":     NODE_ZONE,
-                        "summary":  summary,
-                        "timestamp": datetime.utcnow().isoformat(),
-                    })
-                    if r.status_code == 200:
-                        peer_id = r.json().get("node_id", peer_addr)
-                        state["peers"].setdefault(peer_id, {})["status"]    = "online"
-                        state["peers"][peer_id]["last_seen"] = datetime.utcnow().isoformat()
-                except Exception as e:
-                    # Mark peer degraded
-                    for pid, p in state["peers"].items():
-                        if peer_addr in pid or peer_addr.split(":")[0] in pid:
-                            p["status"] = "unreachable"
-                    logger.warning("Gossip to %s failed: %s", peer_addr, e)
-
-            # Publish to Kafka
-            if KAFKA_OK and kafka_producer:
-                try:
-                    health_msg = {
-                        "node_id":          NODE_ID,
-                        "zone":             NODE_ZONE,
-                        "status":           state["status"],
-                        "last_heartbeat":   state["last_heartbeat"],
-                        "processing_load":  state["processing_load"],
-                        "peers_connected":  len([p for p in state["peers"].values() if p.get("status") == "online"]),
-                        "records_processed":state["records_processed"],
-                        "timestamp":        datetime.utcnow().isoformat(),
-                    }
-                    await kafka_producer.send_and_wait("traffic.node_status",
-                        value=json.dumps(health_msg, default=str).encode(), key=NODE_ID.encode())
-                except Exception as e:
-                    logger.warning("Kafka publish error: %s", e)
+    while True:
+        await asyncio.sleep(GOSSIP_S)
+        if is_degraded():
+            continue
+        summary = generate_zone_summary()
+        ledger.add_entry(NODE_ID, NODE_ZONE, summary)
+        refresh_peer_statuses()
+        candidates = [addr for addr, peer in peer_table.items() if peer.get("status") != "unreachable"]
+        targets = random.sample(candidates, min(GOSSIP_FANOUT, len(candidates)))
+        if targets:
+            await send_gossip(targets, make_gossip_message(summary))
+        enqueue_kafka({
+            "node_id": NODE_ID, "zone": NODE_ZONE, "status": state["status"],
+            "last_heartbeat": state["last_heartbeat"], "processing_load": state["processing_load"],
+            "peers_connected": len([p for p in peer_table.values() if p.get("status") == "online"]),
+            "records_processed": state["records_processed"], "timestamp": utc_iso(),
+        })
+        await flush_kafka_buffer()
 
 
 async def heartbeat_loop():
     while True:
-        state["last_heartbeat"] = datetime.utcnow().isoformat()
         await asyncio.sleep(HEARTBEAT_S)
+        state["last_heartbeat"] = utc_iso()
+        refresh_peer_statuses()
+        if degraded_until and now() >= degraded_until:
+            degraded_until = None
+            state["status"] = "online"
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-
-async def start_kafka():
-    global kafka_producer
-    if not KAFKA_OK:
-        return
-    for attempt in range(10):
-        try:
-            from aiokafka import AIOKafkaProducer as KP
-            kafka_producer = KP(
-                bootstrap_servers=KAFKA_BOOT,
-                value_serializer=None,  # raw bytes
-                key_serializer=None,
-            )
-            await kafka_producer.start()
-            logger.info("Kafka connected from node %s", NODE_ID)
-            return
-        except Exception as e:
-            logger.warning("Kafka attempt %d: %s", attempt + 1, e)
-            await asyncio.sleep(5)
+async def start_kafka_reconnect_task():
+    asyncio.create_task(kafka_reconnect_loop())
 
 
 async def run():
-    await start_kafka()
+    for addr in PEER_ADDRS:
+        peer_table.setdefault(addr, {"id": None, "last_seen": utc_iso(), "summary": {}, "status": "online"})
+    if KAFKA_OK:
+        asyncio.create_task(kafka_reconnect_loop())
     asyncio.create_task(gossip_loop())
     asyncio.create_task(heartbeat_loop())
-    config = uvicorn.Config(app, host="0.0.0.0", port=NODE_PORT, log_level="warning")
-    server = uvicorn.Server(config)
-    await server.serve()
+    config = uvicorn.Config(app, host=NODE_HOST, port=NODE_PORT, log_level="warning")
+    await uvicorn.Server(config).serve()
 
 
 if __name__ == "__main__":

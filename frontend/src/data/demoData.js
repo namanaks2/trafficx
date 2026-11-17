@@ -1,4 +1,4 @@
-// TrafficX Demo Data — All realistic synthetic data for presentation mode
+﻿// TrafficX Demo Data — All realistic synthetic data for presentation mode
 // This data powers the application when no live backend is configured.
 
 export const DEMO_MODE = true;
@@ -295,3 +295,4 @@ export const demoUsers = [
   { id: 'usr-002', name: 'Sarah Chen', email: 'authority@trafficx.io', role: 'traffic_authority', avatar: null, lastLogin: new Date().toISOString() },
   { id: 'usr-003', name: 'James Wilson', email: 'analyst@trafficx.io', role: 'traffic_analyst', avatar: null, lastLogin: new Date().toISOString() },
 ];
+

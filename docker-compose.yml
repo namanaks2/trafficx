@@ -173,6 +173,8 @@ services:
       - "7001:7001"
     env_file:
       - .env
+    volumes:
+      - ./backend:/backend:ro
     environment:
       NODE_ID: NODE-A
       NODE_ZONE: zone-a
@@ -181,6 +183,7 @@ services:
       PEER_ADDRESSES: "node-b:7002,node-c:7003"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       CASSANDRA_CONTACT_POINTS: cassandra
+      PYTHONPATH: /backend
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -198,6 +201,8 @@ services:
       - "7002:7002"
     env_file:
       - .env
+    volumes:
+      - ./backend:/backend:ro
     environment:
       NODE_ID: NODE-B
       NODE_ZONE: zone-b
@@ -206,6 +211,7 @@ services:
       PEER_ADDRESSES: "node-a:7001,node-c:7003"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       CASSANDRA_CONTACT_POINTS: cassandra
+      PYTHONPATH: /backend
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -223,6 +229,8 @@ services:
       - "7003:7003"
     env_file:
       - .env
+    volumes:
+      - ./backend:/backend:ro
     environment:
       NODE_ID: NODE-C
       NODE_ZONE: zone-c
@@ -231,6 +239,7 @@ services:
       PEER_ADDRESSES: "node-a:7001,node-b:7002"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       CASSANDRA_CONTACT_POINTS: cassandra
+      PYTHONPATH: /backend
     depends_on:
       kafka-init:
         condition: service_completed_successfully

@@ -4,9 +4,14 @@ Uses speed drop + vehicle density to flag potential incidents.
 Never claims confirmed accidents from sensor data alone.
 """
 import uuid, math
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import deque, defaultdict
 from typing import Optional
+import numpy as np
+
+from ..ml.anomaly_detector import AnomalyDetector
+
+_anomaly_detector = AnomalyDetector()
 
 # Per-road rolling baseline (last 20 readings)
 _baselines: dict[str, deque] = defaultdict(lambda: deque(maxlen=20))
@@ -20,6 +25,17 @@ def detect_incident(event: dict) -> Optional[dict]:
     zone    = event.get("zone", "unknown")
     lat     = float(event.get("latitude", 0.0))
     lng     = float(event.get("longitude", 0.0))
+
+    point = np.asarray([[
+        float(event.get("vehicle_count", 200)),
+        float(event.get("speed", 50)),
+        float(event.get("hour_sin", 0)),
+        float(event.get("hour_cos", 1)),
+        float(event.get("is_rush", 0)),
+        float(event.get("is_weekend", 0)),
+    ]], dtype=np.float32)
+    window = np.repeat(point, 12, axis=0)
+    ml_result = _anomaly_detector.score(window)
 
     baseline = _baselines[road_id]
     if len(baseline) >= 5:
@@ -49,9 +65,12 @@ def detect_incident(event: dict) -> Optional[dict]:
                     f"Vehicle density increased {density_spike*100:.0f}%. "
                     f"Requires field verification."
                 ),
-                "timestamp":      datetime.utcnow().isoformat(),
+                "timestamp":      datetime.now(timezone.utc).isoformat(),
                 "speed_baseline": round(avg_speed, 1),
                 "speed_current":  speed,
+                "ml_score": ml_result["ml_score"],
+                "ml_anomaly": ml_result["ml_anomaly"],
+                "classification": "traffic anomaly",
             }
             baseline.append({"speed": speed, "vc": vc})
             return incident

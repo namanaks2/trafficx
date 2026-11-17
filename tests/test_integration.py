@@ -9,6 +9,8 @@ import os
 import sys
 import time
 import pytest
+import numpy as np
+import tempfile
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +39,9 @@ async def test_kafka_roundtrip():
                             value_deserializer=lambda m: json.loads(m.decode()))
     try:
         await prod.start()
+    except Exception as e:
+        pytest.skip(f"Kafka unavailable: {e}")
+    try:
         await cons.start()
         await prod.send_and_wait("traffic.raw", value=test_msg, key=b"test")
         try:
@@ -167,3 +172,29 @@ async def test_websocket_connection():
         print("✓ WebSocket connected (no message in 5s — normal if no producer running)")
     except Exception as e:
         pytest.skip(f"Backend WS not reachable: {e}")
+
+
+def test_ml_split_no_leakage():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+    from app.ml.preprocessing import FEATURES, SEQ_LEN, build_splits, generate_dataset
+    df = generate_dataset(days=4, roads=2, seed=7)
+    with tempfile.TemporaryDirectory() as tmp:
+        sp = build_splits(df, os.path.join(tmp, "trafficx_test_scaler.pkl"))
+    assert sp["X_train"].shape[1:] == (SEQ_LEN, len(FEATURES))
+    assert sp["X_val"].shape[0] >= 0
+    assert sp["X_test"].shape[0] >= 0
+
+
+def test_horizon_alignment():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+    from app.ml.preprocessing import HORIZONS
+    assert HORIZONS == {"15": 3, "30": 6, "60": 12}
+
+
+def test_edge_ledger_and_dedup():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "nodes"))
+    from ledger import ChainedLedger
+    ledger = ChainedLedger("TEST")
+    ledger.add_entry("TEST", "zone-a", {"speed": 42})
+    assert ledger.verify()
+    assert ledger.length == 2

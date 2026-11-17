@@ -1,0 +1,163 @@
+{
+  "dataset": "synthetic",
+  "units": "congestion_%",
+  "seeds": [
+    42
+  ],
+  "training_date": "2026-11-18",
+  "horizons": {
+    "15": {
+      "lstm": {
+        "mae": 3.7275,
+        "rmse": 5.7186,
+        "mape": 16.41
+      },
+      "persistence": {
+        "mae": 4.4951,
+        "rmse": 6.6044,
+        "mape": 18.81
+      },
+      "train_mean": {
+        "mae": 20.0977,
+        "rmse": 24.4094,
+        "mape": 89.24
+      },
+      "tod_mean": {
+        "mae": 5.8082,
+        "rmse": 8.8077,
+        "mape": 24.04
+      },
+      "multi_seed": {
+        "lstm_mae_mean": 3.7275,
+        "lstm_mae_std": 0.0,
+        "lstm_rmse_mean": 5.7186,
+        "lstm_rmse_std": 0.0,
+        "tod_mae_mean": 5.8082,
+        "pers_mae_mean": 4.4951,
+        "tm_mae_mean": 20.0977
+      },
+      "breakdown": {
+        "all": {
+          "n": 12845,
+          "lstm_mae": 3.7275,
+          "tod_mae": 5.8082,
+          "pers_mae": 4.4951
+        },
+        "rush": {
+          "n": 2970,
+          "lstm_mae": 4.401,
+          "tod_mae": 6.3919,
+          "pers_mae": 5.4259
+        },
+        "incident": {
+          "n": 283,
+          "lstm_mae": 11.462,
+          "tod_mae": 18.6997,
+          "pers_mae": 9.3172
+        }
+      }
+    },
+    "30": {
+      "lstm": {
+        "mae": 4.4293,
+        "rmse": 6.9553,
+        "mape": 19.36
+      },
+      "persistence": {
+        "mae": 7.6645,
+        "rmse": 10.6013,
+        "mape": 29.61
+      },
+      "train_mean": {
+        "mae": 20.1006,
+        "rmse": 24.4129,
+        "mape": 89.26
+      },
+      "tod_mean": {
+        "mae": 7.9926,
+        "rmse": 11.0973,
+        "mape": 29.91
+      },
+      "multi_seed": {
+        "lstm_mae_mean": 4.4293,
+        "lstm_mae_std": 0.0,
+        "lstm_rmse_mean": 6.9553,
+        "lstm_rmse_std": 0.0,
+        "tod_mae_mean": 7.9926,
+        "pers_mae_mean": 7.6645,
+        "tm_mae_mean": 20.1006
+      },
+      "breakdown": {
+        "all": {
+          "n": 12845,
+          "lstm_mae": 4.4293,
+          "tod_mae": 7.9926,
+          "pers_mae": 7.6645
+        },
+        "rush": {
+          "n": 2970,
+          "lstm_mae": 4.8752,
+          "tod_mae": 10.3747,
+          "pers_mae": 10.0294
+        },
+        "incident": {
+          "n": 283,
+          "lstm_mae": 19.7227,
+          "tod_mae": 26.5304,
+          "pers_mae": 17.4629
+        }
+      }
+    },
+    "60": {
+      "lstm": {
+        "mae": 4.9085,
+        "rmse": 7.8116,
+        "mape": 21.64
+      },
+      "persistence": {
+        "mae": 13.2874,
+        "rmse": 17.6597,
+        "mape": 48.62
+      },
+      "train_mean": {
+        "mae": 20.0929,
+        "rmse": 24.4032,
+        "mape": 89.24
+      },
+      "tod_mean": {
+        "mae": 12.7424,
+        "rmse": 16.9289,
+        "mape": 44.52
+      },
+      "multi_seed": {
+        "lstm_mae_mean": 4.9085,
+        "lstm_mae_std": 0.0,
+        "lstm_rmse_mean": 7.8116,
+        "lstm_rmse_std": 0.0,
+        "tod_mae_mean": 12.7424,
+        "pers_mae_mean": 13.2874,
+        "tm_mae_mean": 20.0929
+      },
+      "breakdown": {
+        "all": {
+          "n": 12845,
+          "lstm_mae": 4.9085,
+          "tod_mae": 12.7424,
+          "pers_mae": 13.2874
+        },
+        "rush": {
+          "n": 2970,
+          "lstm_mae": 4.8856,
+          "tod_mae": 18.454,
+          "pers_mae": 18.5182
+        },
+        "incident": {
+          "n": 283,
+          "lstm_mae": 36.2955,
+          "tod_mae": 40.6167,
+          "pers_mae": 31.2812
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "training_date": "2026-11-18",
+  "model": "isolation_forest",
+  "threshold": 0.6087480626004813,
+  "injected_types": [
+    "sudden_speed_drop",
+    "sensor_stuck",
+    "vehicle_count_spike"
+  ],
+  "ml": {
+    "precision": 0.0077,
+    "recall": 0.0039,
+    "f1": 0.0052
+  },
+  "rule_based": {
+    "precision": 0.0556,
+    "recall": 0.2558,
+    "f1": 0.0913
+  }
+}
