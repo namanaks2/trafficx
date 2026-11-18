@@ -2,11 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, Marker, Circle, useMap, ZoomControl } from 'react-leaflet';
 import L from 'leaflet';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, X, AlertTriangle, Activity, LocateFixed, Wifi, WifiOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Activity, LocateFixed, Wifi, WifiOff, ChevronDown, ChevronUp } from 'lucide-react';
 import AppLayout from '../../components/layout/AppLayout';
-import StatusBadge from '../../components/ui/StatusBadge';
-import CongestionBar from '../../components/ui/CongestionBar';
 import { useApp } from '../../context/AppContext';
+import { api } from '../../services/api';
 import 'leaflet/dist/leaflet.css';
 
 delete L.Icon.Default.prototype._getIconUrl;
@@ -26,7 +25,7 @@ const userIcon = L.divIcon({
 
 function FlyTo({ pos, zoom }) {
   const map = useMap();
-  useEffect(() => { if (pos) map.flyTo(pos, zoom || map.getZoom(), { duration: 1.2 }); }, [pos]);
+  useEffect(() => { if (pos) map.flyTo(pos, zoom || map.getZoom(), { duration: 1.2 }); }, [map, pos, zoom]);
   return null;
 }
 
@@ -35,7 +34,7 @@ function NodePopup({ node }) {
     <div style={{ minWidth: 180, fontFamily: 'Inter,sans-serif' }}>
       <strong style={{ color: '#F8FAFC', fontSize: 13 }}>{node.name}</strong>
       <div style={{ marginTop: 8, fontSize: 11, color: '#94A3B8' }}>
-        <div>Vehicles: <strong style={{ color: '#F8FAFC' }}>{node.vehicleCount}</strong></div>
+        <div>Vehicles: <strong style={{ color: '#F8FAFC' }}>{node.vehicleCount ?? 'Not provided'}</strong></div>
         <div>Speed: <strong style={{ color: '#F8FAFC' }}>{node.avgSpeed} km/h</strong></div>
         <div style={{ marginTop: 6 }}>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
@@ -54,12 +53,11 @@ function NodePopup({ node }) {
 const off = (lat, lng, dLat, dLng) => [lat + dLat, lng + dLng];
 function buildNodes(lat, lng) {
   return [
-    { id:'n1', name:'Junction Alpha',   nodeId:'TXN-001', zone:'Central', status:'active',  vehicleCount:342, avgSpeed:18, congestion:78, lat:off(lat,lng,0.003,0.004)[0], lng:off(lat,lng,0.003,0.004)[1] },
-    { id:'n2', name:'Highway North',    nodeId:'TXN-002', zone:'North',   status:'active',  vehicleCount:891, avgSpeed:55, congestion:32, lat:off(lat,lng,0.012,-0.002)[0],lng:off(lat,lng,0.012,-0.002)[1] },
-    { id:'n3', name:'Bridge Crossing',  nodeId:'TXN-003', zone:'South',   status:'active',  vehicleCount:467, avgSpeed:28, congestion:65, lat:off(lat,lng,-0.009,0.006)[0],lng:off(lat,lng,-0.009,0.006)[1] },
-    { id:'n4', name:'Airport Express',  nodeId:'TXN-004', zone:'East',    status:'active',  vehicleCount:623, avgSpeed:42, congestion:45, lat:off(lat,lng,-0.004,-0.014)[0],lng:off(lat,lng,-0.004,-0.014)[1] },
-    { id:'n5', name:'West Boulevard',   nodeId:'TXN-005', zone:'West',    status:'warning', vehicleCount:289, avgSpeed:12, congestion:88, lat:off(lat,lng,0.006,-0.011)[0], lng:off(lat,lng,0.006,-0.011)[1] },
-    { id:'n6', name:'Financial Dist',   nodeId:'TXN-006', zone:'Central', status:'active',  vehicleCount:512, avgSpeed:15, congestion:82, lat:off(lat,lng,0.001,-0.005)[0], lng:off(lat,lng,0.001,-0.005)[1] },
+    { id:'n1', name:'NH-48 Gurgaon', nodeId:'TXN-001', zone:'Gurugram', status:'active', vehicleCount:342, avgSpeed:18, congestion:78, lat:off(lat,lng,-0.15,-0.18)[0], lng:off(lat,lng,-0.15,-0.18)[1] },
+    { id:'n2', name:'DND Flyway', nodeId:'TXN-002', zone:'Noida', status:'active', vehicleCount:891, avgSpeed:55, congestion:32, lat:off(lat,lng,-0.04,0.10)[0], lng:off(lat,lng,-0.04,0.10)[1] },
+    { id:'n3', name:'Delhi-Meerut Expressway', nodeId:'TXN-003', zone:'Ghaziabad', status:'active', vehicleCount:467, avgSpeed:28, congestion:65, lat:off(lat,lng,0.06,0.24)[0], lng:off(lat,lng,0.06,0.24)[1] },
+    { id:'n4', name:'Outer Ring Road', nodeId:'TXN-004', zone:'Delhi', status:'active', vehicleCount:623, avgSpeed:42, congestion:45, lat:off(lat,lng,-0.05,0.01)[0], lng:off(lat,lng,-0.05,0.01)[1] },
+    { id:'n5', name:'Noida-Greater Noida Expressway', nodeId:'TXN-005', zone:'Noida', status:'warning', vehicleCount:289, avgSpeed:12, congestion:88, lat:off(lat,lng,-0.14,0.30)[0], lng:off(lat,lng,-0.14,0.30)[1] },
   ];
 }
 function buildSegs(lat, lng) {
@@ -82,22 +80,53 @@ export default function TrafficMap() {
   const [showPanel, setShowPanel] = useState(false);
   const watchRef = useRef(null);
 
-  const DEFAULT = [20.5937, 78.9629];
+  const DEFAULT = [28.6139, 77.2090];
   const center  = userPos ? [userPos.lat, userPos.lng] : DEFAULT;
-  const nodes   = buildNodes(center[0], center[1]);
-  const segs    = buildSegs(center[0],  center[1]);
+  const [liveNodes, setLiveNodes] = useState(() => buildNodes(DEFAULT[0], DEFAULT[1]));
+  const [dataStatus, setDataStatus] = useState(api.configured ? 'connecting' : 'simulated');
+  const [dataError, setDataError] = useState('');
+  const segs = dataStatus === 'simulated' ? buildSegs(DEFAULT[0], DEFAULT[1]) : [];
 
-  // Live node updates
-  const [liveNodes, setLiveNodes] = useState(nodes);
-  useEffect(() => { setLiveNodes(buildNodes(center[0], center[1])); }, [userPos]);
   useEffect(() => {
-    const id = setInterval(() => setLiveNodes(p => p.map(n =>
-      n.status === 'offline' ? n : { ...n,
-        vehicleCount: Math.max(10, n.vehicleCount + Math.floor(Math.random()*20-10)),
-        avgSpeed: Math.max(5, Math.min(100, n.avgSpeed + Math.floor(Math.random()*4-2))),
-        congestion: Math.max(5, Math.min(99, n.congestion + Math.floor(Math.random()*6-3))),
-      })), 5000);
-    return () => clearInterval(id);
+    if (!api.configured) return undefined;
+    let active = true;
+    let timer;
+
+    const refresh = async () => {
+      try {
+        const roads = await api.traffic.locations();
+        if (!Array.isArray(roads)) throw new Error('Backend did not return road readings.');
+        if (!active) return;
+        const liveCount = roads.filter(road => road.source === 'tomtom').length;
+        setLiveNodes(roads.map(road => ({
+          id: road.id,
+          name: road.name,
+          nodeId: road.node_id,
+          zone: road.zone,
+          status: road.status,
+          vehicleCount: road.vehicle_count,
+          avgSpeed: road.avg_speed,
+          congestion: road.congestion,
+          lat: road.lat,
+          lng: road.lng,
+          source: road.source,
+        })));
+        setDataStatus(liveCount === roads.length && roads.length ? 'live' : liveCount ? 'mixed' : 'simulated');
+        setDataError('');
+      } catch (requestError) {
+        if (!active) return;
+        setDataStatus('offline');
+        setDataError(requestError.message || 'Traffic readings are unavailable.');
+      } finally {
+        if (active) timer = setTimeout(refresh, 60_000);
+      }
+    };
+
+    refresh();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
   }, []);
 
   const stopTracking = useCallback(() => {
@@ -130,23 +159,23 @@ export default function TrafficMap() {
         setGeoStatus('active');
         setFlyTarget({ pos:[pos.coords.latitude,pos.coords.longitude], zoom:15, ts:Date.now() });
       },
-      err => { setGeoStatus('error'); stopTracking(); },
+      _err => { setGeoStatus('error'); stopTracking(); },
       { enableHighAccuracy:true }
     );
   }, [stopTracking]);
 
-  useEffect(() => () => stopTracking(), []);
+  useEffect(() => () => stopTracking(), [stopTracking]);
 
   const activeInc = liveInc.filter(i => i.status !== 'resolved').slice(0, 5);
   const online    = liveNodes.filter(n => n.status !== 'offline');
   const avgCong   = online.length ? Math.round(online.reduce((a,b) => a+b.congestion,0)/online.length) : 0;
 
   return (
-    <AppLayout title="Live Traffic Map" subtitle="Real-time monitoring">
+    <AppLayout title="Live Traffic Map" subtitle="Delhi NCR road monitoring" dataStatus={dataStatus}>
       <div className="relative -mx-3 -mt-3" style={{ height: 'calc(100vh - 120px)', minHeight: 400 }}>
 
         {/* Map fills full area */}
-        <MapContainer center={center} zoom={userPos ? 14 : 5} className="w-full h-full"
+        <MapContainer center={center} zoom={userPos ? 14 : 11} className="w-full h-full"
           style={{ background:'#080D17' }} zoomControl={false}>
           <ZoomControl position="bottomright" />
           {flyTarget && <FlyTo key={flyTarget.ts} pos={flyTarget.pos} zoom={flyTarget.zoom} />}
@@ -223,6 +252,13 @@ export default function TrafficMap() {
             </button>
           )}
           {geoError && <div className="bg-status-critical/90 text-white px-3 py-2 rounded-xl text-[10px] max-w-[160px]" style={{ backdropFilter:'blur(8px)' }}>{geoError}</div>}
+          <div className="rounded-xl bg-bg-card/95 px-3 py-2 text-[10px] font-semibold text-text-primary shadow-lg" style={{ backdropFilter:'blur(8px)' }}>
+            {dataStatus === 'live' ? 'TomTom live readings' :
+              dataStatus === 'mixed' ? 'Mixed live and simulated readings' :
+                dataStatus === 'offline' ? 'Backend unavailable · demo fallback shown' :
+                  dataStatus === 'connecting' ? 'Connecting to backend…' : 'Simulated map readings'}
+          </div>
+          {dataError && <div role="alert" className="max-w-[220px] rounded-xl bg-red-600/95 px-3 py-2 text-[10px] text-white shadow-lg">{dataError}</div>}
         </div>
 
         {/* ── Top overlay: layer filters ── */}
@@ -257,7 +293,7 @@ export default function TrafficMap() {
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-text-primary">
                 <Activity size={13} className="text-status-success" />
-                {liveNodes.filter(n=>n.status!=='offline').length}/{liveNodes.length} nodes online
+                {liveNodes.filter(n=>n.status!=='offline').length}/{liveNodes.length} roads reporting
               </div>
               <div className="text-xs font-bold" style={{ color: avgCong>70?'#EF4444':avgCong>45?'#F59E0B':'#22C55E' }}>
                 {avgCong}% avg congestion
@@ -278,7 +314,7 @@ export default function TrafficMap() {
                       <div className="w-2 h-2 rounded-full shrink-0" style={{ background: congestionColor(n.congestion) }} />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-medium text-text-primary truncate">{n.name}</div>
-                        <div className="text-[10px] text-text-muted">{n.vehicleCount} vehicles · {n.avgSpeed} km/h</div>
+                        <div className="text-[10px] text-text-muted">{n.vehicleCount ?? 'Vehicle count unavailable'} · {n.avgSpeed} km/h</div>
                       </div>
                       <div className="text-xs font-bold shrink-0" style={{ color: congestionColor(n.congestion) }}>{n.congestion}%</div>
                     </div>

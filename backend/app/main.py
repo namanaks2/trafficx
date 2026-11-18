@@ -176,6 +176,10 @@ async def root():
         "name": "TrafficX API",
         "version": "2.0.0",
         "demo_mode": settings.demo_mode,
+        "traffic_provider": {
+            "name": "TomTom" if settings.tomtom_api_key else "simulated",
+            "configured": bool(settings.tomtom_api_key),
+        },
         "kafka": producer.connected,
         "cassandra": cass_ok,
         "lstm": lstm_predictor.loaded,
@@ -193,6 +197,10 @@ async def health():
     return {
         "status": "ok",
         "demo_mode": settings.demo_mode,
+        "traffic_provider": {
+            "name": "TomTom" if settings.tomtom_api_key else "simulated",
+            "configured": bool(settings.tomtom_api_key),
+        },
         "kafka": {"producer": producer.connected, "consumer": consumer.connected},
         "cassandra": cass_status,
         "lstm": {"loaded": lstm_predictor.loaded,

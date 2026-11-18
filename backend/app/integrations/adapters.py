@@ -10,25 +10,46 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-TOMTOM_KEY     = os.getenv("TOMTOM_API_KEY")
 HERE_KEY       = os.getenv("HERE_API_KEY")
 OPENWEATHER_KEY= os.getenv("OPENWEATHER_API_KEY")
 
 
 # ── TomTom Traffic ────────────────────────────────────────────────────────────
 
-async def get_tomtom_flow(lat: float, lng: float) -> dict:
-    if not TOMTOM_KEY:
-        return {"source": "simulated", "freeFlowSpeed": 60, "currentSpeed": random.randint(20, 60), "confidence": 0.0}
-    url = f"https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json?key={TOMTOM_KEY}&point={lat},{lng}"
+async def get_tomtom_flow(lat: float, lng: float, api_key: Optional[str] = None) -> dict:
+    key = api_key or os.getenv("TOMTOM_API_KEY")
+    if not key:
+        return {
+            "source": "simulated",
+            "reason": "TOMTOM_API_KEY is not configured",
+            "freeFlowSpeed": 60,
+            "currentSpeed": random.randint(20, 60),
+            "confidence": 0.0,
+        }
+    url = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
     try:
         async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(url)
-            d = r.json().get("flowSegmentData", {})
-            return {"source": "tomtom", "freeFlowSpeed": d.get("freeFlowSpeed"), "currentSpeed": d.get("currentSpeed"), "confidence": d.get("confidence", 0)}
-    except Exception as e:
-        logger.warning("TomTom error: %s", e)
-        return {"source": "simulated", "error": str(e)}
+            response = await c.get(url, params={"key": key, "point": f"{lat},{lng}"})
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("TomTom response was not an object")
+            data = payload.get("flowSegmentData")
+            if not data or data.get("currentSpeed") is None or data.get("freeFlowSpeed") is None:
+                raise ValueError("TomTom response did not contain usable flow data")
+            current_speed = float(data["currentSpeed"])
+            free_flow_speed = float(data["freeFlowSpeed"])
+            if not math.isfinite(current_speed) or not math.isfinite(free_flow_speed) or current_speed < 0 or free_flow_speed <= 0:
+                raise ValueError("TomTom response contained invalid flow speeds")
+            return {
+                "source": "tomtom",
+                "freeFlowSpeed": free_flow_speed,
+                "currentSpeed": current_speed,
+                "confidence": data.get("confidence", 0),
+            }
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        logger.warning("TomTom traffic lookup failed (%s)", type(exc).__name__)
+        return {"source": "simulated", "reason": "TomTom traffic lookup failed"}
 
 
 # ── HERE Traffic ──────────────────────────────────────────────────────────────
