@@ -1,6 +1,7 @@
 import pytest
 
 from backend.app.api import traffic
+from producer.gps_probe_simulator import generate_probe_trace
 
 
 @pytest.mark.asyncio
@@ -45,3 +46,13 @@ async def test_missing_provider_data_is_explicitly_labelled_simulated(monkeypatc
     assert all(road["source_note"] == "provider unavailable" for road in roads)
     assert summary["source"] == "simulated"
     assert summary["is_demo"] is True
+
+
+def test_gps_probe_publisher_only_emits_k_anonymous_rounded_cells():
+    k = 5
+    cells = generate_probe_trace(samples=1000, k=k, seed=3)
+
+    assert cells
+    assert all(cell["probe_count"] >= k for cell in cells)
+    assert all(round(cell["lat"], 2) == cell["lat"] for cell in cells)
+    assert all(round(cell["lng"], 2) == cell["lng"] for cell in cells)

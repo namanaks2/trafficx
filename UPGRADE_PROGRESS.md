@@ -7,10 +7,11 @@
 - Rule-based and isolation-forest anomaly detection support
 - 5-minute bucketed inference with warming-up fallback
 - HTTP gossip, peer discovery, HMAC signatures, TTL, deduplication, and ledger verification
-- Kafka reconnect buffer and optional SQLite spill
-- Optional federated-weight base64 and FedAvg helpers
+- Kafka reconnect buffer with ordered optional SQLite spill/replay
+- Optional local linear-baseline training, gossip weight exchange, FedAvg, and rolling held-out MAE
 - Camera/GPS/social source adapters
-- CI workflow, unit/integration tests, and benchmark entry points
+- UTC/schema validation and bounded event-ID deduplication for raw traffic
+- CI workflow, focused unit/integration tests, and benchmarks that measure a running stack
 
 ## Metrics
 
@@ -18,7 +19,8 @@ Use `results/ml_metrics.json` and `results/anomaly_metrics.json` as the source o
 
 ## Limitations and TODO
 
-- Real Docker end-to-end benchmarks require the full infrastructure running.
-- Federated learning is behind `ENABLE_FEDERATED=true` and has weight exchange helpers, but no continuous production training loop is enabled by default.
+- Real Docker end-to-end benchmark metrics are unavailable until the stack is run on a host with Docker.
+- Local demo-mode API timing is recorded in `results/bench_api.json`; it is not a full-stack performance result.
+- Federated learning is an experimental linear baseline over local simulated edge observations, not the LSTM; it has no differential privacy or secure aggregation.
 - Camera real mode requires a supplied Ultralytics model and video.
 - Docker gossip result and fault-tolerance numbers must be collected on a running stack.

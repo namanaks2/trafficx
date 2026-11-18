@@ -6,7 +6,6 @@ This is an honest, process-level HTTP gossip implementation; it is not libp2p.
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import hmac
 import json
@@ -18,6 +17,7 @@ import uuid
 from collections import OrderedDict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 import uvicorn
@@ -37,6 +37,16 @@ try:
 except ImportError:
     from .ledger import ChainedLedger
 
+try:
+    from app.ml.lstm_predictor import LSTMPredictor
+except ImportError:
+    LSTMPredictor = None
+
+try:
+    from federated import FederatedLinearBaseline
+except ImportError:
+    from .federated import FederatedLinearBaseline
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("edge-node")
 
@@ -51,13 +61,17 @@ GOSSIP_S = int(os.getenv("GOSSIP_INTERVAL_SEC", "8"))
 GOSSIP_FANOUT = int(os.getenv("GOSSIP_FANOUT", "2"))
 NETWORK_SECRET = os.getenv("NETWORK_SECRET", "change-me-in-production")
 ENABLE_SIMULATION = os.getenv("ENABLE_SIMULATION", "false").lower() == "true"
+ENABLE_FEDERATED = os.getenv("ENABLE_FEDERATED", "false").lower() == "true"
 ALLOWED_ORIGINS = [
     x.strip() for x in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if x.strip()
 ]
 TRAFFIC_TZ = os.getenv("TRAFFIC_TZ", "Asia/Kolkata")
 SPILL_PATH = os.getenv("SPILL_PATH")
+ADVERTISE_ADDRESS = os.getenv("NODE_ADVERTISE_ADDRESS", f"{NODE_HOST}:{NODE_PORT}")
 
 ledger = ChainedLedger(NODE_ID)
+local_predictor = LSTMPredictor() if LSTMPredictor else None
+federated_model = FederatedLinearBaseline() if ENABLE_FEDERATED else None
 peer_table: dict[str, dict] = {}
 seen_messages: OrderedDict[str, None] = OrderedDict()
 kafka_buffer: deque[dict] = deque(maxlen=10000)
@@ -118,7 +132,7 @@ def verify_signature(payload: dict) -> bool:
 
 def generate_zone_summary() -> dict:
     """Generate one simulated observation using zone-local rolling state."""
-    local = now()
+    local = now().astimezone(ZoneInfo(TRAFFIC_TZ))
     hour = local.hour
     is_rush = 7 <= hour <= 9 or 17 <= hour <= 19
     target_speed = 22.0 if is_rush else 55.0
@@ -150,6 +164,9 @@ def mark_degraded(seconds: int):
 def refresh_peer_statuses():
     cutoff = now().timestamp() - (3 * GOSSIP_S)
     for addr, peer in list(peer_table.items()):
+        if not peer.get("last_seen"):
+            peer["status"] = "unknown"
+            continue
         try:
             last = datetime.fromisoformat(peer["last_seen"])
             peer["status"] = "online" if last.timestamp() >= cutoff else "unreachable"
@@ -161,6 +178,13 @@ async def start_kafka():
     global kafka_producer, kafka_connected
     if not KAFKA_OK:
         return
+    old_producer = kafka_producer
+    kafka_producer = None
+    if old_producer is not None:
+        try:
+            await old_producer.stop()
+        except Exception as exc:
+            logger.debug("Previous Kafka producer shutdown failed: %s", exc)
     delay = 1
     while True:
         try:
@@ -187,15 +211,43 @@ async def kafka_reconnect_loop():
 
 
 async def flush_kafka_buffer():
-    global kafka_dropped
+    global kafka_dropped, kafka_connected
     if not kafka_connected or kafka_producer is None:
         return
+    if SPILL_PATH:
+        while kafka_connected:
+            try:
+                with sqlite3.connect(SPILL_PATH) as conn:
+                    conn.execute("CREATE TABLE IF NOT EXISTS spill (payload TEXT)")
+                    row = conn.execute("SELECT rowid, payload FROM spill ORDER BY rowid LIMIT 1").fetchone()
+            except sqlite3.Error as exc:
+                logger.warning("Kafka spill read failed: %s", exc)
+                break
+            if row is None:
+                break
+            try:
+                item = json.loads(row[1])
+                await kafka_producer.send_and_wait(
+                    "traffic.node_status",
+                    value=json.dumps(item, default=str).encode(),
+                    key=NODE_ID.encode(),
+                )
+                with sqlite3.connect(SPILL_PATH) as conn:
+                    conn.execute("DELETE FROM spill WHERE rowid = ?", (row[0],))
+            except Exception as exc:
+                logger.warning("Kafka spill replay failed; retaining event: %s", exc)
+                kafka_connected = False
+                state["kafka_connected"] = False
+                return
     while kafka_buffer:
         item = kafka_buffer[0]
         try:
             await kafka_producer.send_and_wait("traffic.node_status", value=json.dumps(item, default=str).encode(), key=NODE_ID.encode())
             kafka_buffer.popleft()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Kafka send failed; retaining buffered events: %s", exc)
+            kafka_connected = False
+            state["kafka_connected"] = False
             return
     state["kafka_buffer_size"] = len(kafka_buffer)
     state["kafka_dropped"] = kafka_dropped
@@ -204,27 +256,38 @@ async def flush_kafka_buffer():
 def enqueue_kafka(item: dict):
     global kafka_dropped
     if len(kafka_buffer) == kafka_buffer.maxlen:
-        kafka_dropped += 1
+        overflow = kafka_buffer.popleft()
         if SPILL_PATH:
             try:
                 with sqlite3.connect(SPILL_PATH) as conn:
                     conn.execute("CREATE TABLE IF NOT EXISTS spill (payload TEXT)")
-                    conn.execute("INSERT INTO spill(payload) VALUES (?)", (json.dumps(item, default=str),))
+                    conn.execute("INSERT INTO spill(payload) VALUES (?)", (json.dumps(overflow, default=str),))
             except Exception as exc:
+                kafka_dropped += 1
                 logger.warning("Kafka spill failed: %s", exc)
+        else:
+            kafka_dropped += 1
     kafka_buffer.append(item)
     state["kafka_buffer_size"] = len(kafka_buffer)
     state["kafka_dropped"] = kafka_dropped
 
 
-def make_gossip_message(summary: dict, ttl: int = 5) -> dict:
+def make_gossip_message(
+    summary: dict,
+    prediction: dict,
+    ttl: int = 5,
+    federated_update: Optional[dict] = None,
+) -> dict:
     unsigned = {
         "msg_id": str(uuid.uuid4()),
         "origin": NODE_ID,
+        "sender_address": ADVERTISE_ADDRESS,
+        "sender_id": NODE_ID,
         "seq": state["records_processed"],
         "ttl": ttl,
         "summary": summary,
-        "prediction": {"warming_up": True, "source": "rule-based-simulated"},
+        "prediction": prediction,
+        "federated_update": federated_update,
         "known_peers": {addr: {"id": p.get("id"), "last_seen": p.get("last_seen")} for addr, p in peer_table.items()},
         "timestamp": utc_iso(),
     }
@@ -288,37 +351,68 @@ async def receive_gossip(payload: dict):
     signature = payload.get("signature", "")
     unsigned = dict(payload)
     unsigned.pop("signature", None)
-    if not signature or not hmac.compare_digest(signature, sign_payload(unsigned)):
+    if not isinstance(signature, str) or not signature or not hmac.compare_digest(signature, sign_payload(unsigned)):
         signature_rejections += 1
         state["signature_rejections"] = signature_rejections
         raise HTTPException(status_code=401, detail="invalid gossip signature")
 
+    ttl = payload.get("ttl")
+    if isinstance(ttl, bool) or not isinstance(ttl, int) or not 1 <= ttl <= 20:
+        raise HTTPException(status_code=400, detail="gossip ttl must be an integer from 1 to 20")
+    summary = payload.get("summary", {})
+    known_peers = payload.get("known_peers", {})
+    if not isinstance(summary, dict) or not isinstance(known_peers, dict):
+        raise HTTPException(status_code=400, detail="invalid gossip summary or peer list")
+
     msg_id = payload.get("msg_id")
-    if not msg_id or not remember_message(msg_id):
+    if not isinstance(msg_id, str) or not msg_id or len(msg_id) > 128:
+        raise HTTPException(status_code=400, detail="invalid gossip message id")
+    if not remember_message(msg_id):
         return {"ack": True, "node_id": NODE_ID, "duplicate": True}
 
     sender = payload.get("origin", "unknown")
-    summary = payload.get("summary", {})
+    sender_id = payload.get("sender_id", sender)
+    sender_address = payload.get("sender_address")
+    if isinstance(sender_address, str) and sender_address and sender != NODE_ID:
+        peer_table[sender_address] = {
+            "id": sender_id,
+            "last_seen": utc_iso(),
+            "summary": summary if isinstance(summary, dict) else {},
+            "status": "online",
+        }
     if summary:
-        state["recent_events"].insert(0, {"type": "gossip_received", "from": sender, "timestamp": utc_iso(), "summary": summary})
+        state["recent_events"].insert(0, {
+            "type": "gossip_received",
+            "msg_id": msg_id,
+            "from": sender,
+            "timestamp": utc_iso(),
+            "summary": summary,
+            "prediction": payload.get("prediction"),
+        })
         state["recent_events"] = state["recent_events"][:20]
         ledger.add_entry(sender, summary.get("zone", "unknown"), summary)
 
-    known_peers = payload.get("known_peers", {})
-    if isinstance(known_peers, dict):
-        for addr, info in known_peers.items():
-            peer_table.setdefault(addr, {"id": info.get("id"), "last_seen": info.get("last_seen"), "summary": {}, "status": "unknown"})
+    federated_update = payload.get("federated_update")
+    if federated_model and federated_update:
+        try:
+            federated_model.aggregate(federated_update)
+        except (TypeError, ValueError) as exc:
+            logger.warning("Ignoring invalid federated update from %s: %s", sender, exc)
 
-    ttl = int(payload.get("ttl", 1))
+    for addr, info in known_peers.items():
+        if isinstance(addr, str) and isinstance(info, dict):
+            peer_table.setdefault(addr, {"id": info.get("id"), "last_seen": info.get("last_seen"), "summary": {}, "status": "unknown"})
     if ttl > 1:
-        excluded = {sender}
+        excluded = {sender_address, ADVERTISE_ADDRESS}
         candidates = [
             addr for addr, peer in peer_table.items()
-            if addr not in excluded and peer.get("id") != sender
+            if addr not in excluded and peer.get("id") not in {sender_id, sender, NODE_ID}
         ]
         targets = random.sample(candidates, min(GOSSIP_FANOUT, len(candidates)))
         relay = dict(payload)
         relay["ttl"] = ttl - 1
+        relay["sender_address"] = ADVERTISE_ADDRESS
+        relay["sender_id"] = NODE_ID
         relay["signature"] = sign_payload({k: v for k, v in relay.items() if k != "signature"})
         if targets:
             await send_gossip(targets, relay)
@@ -352,6 +446,8 @@ async def verify_ledger():
 async def simulate_failure(seconds: int = 15):
     if not ENABLE_SIMULATION:
         raise HTTPException(status_code=404, detail="simulation endpoints disabled")
+    if seconds < 1 or seconds > 300:
+        raise HTTPException(status_code=422, detail="seconds must be between 1 and 300")
     mark_degraded(seconds)
     return {"node_id": NODE_ID, "status": "degraded", "recover_in_seconds": seconds}
 
@@ -363,11 +459,38 @@ async def gossip_loop():
             continue
         summary = generate_zone_summary()
         ledger.add_entry(NODE_ID, NODE_ZONE, summary)
+        event = {
+            "road_id": f"{NODE_ID}:{NODE_ZONE}",
+            "timestamp": summary["timestamp"],
+            "speed": summary["avg_speed"],
+            "vehicle_count": summary["vehicle_count"],
+        }
+        prediction = (
+            await local_predictor.predict_async(event)
+            if local_predictor and local_predictor.loaded
+            else {
+                "predicted_congestion_15": summary["congestion_pct"],
+                "predicted_congestion_30": summary["congestion_pct"],
+                "predicted_congestion_60": summary["congestion_pct"],
+                "model_version": "rule-based-fallback",
+                "is_simulated": True,
+                "warming_up": True,
+            }
+        )
+        federated_update = None
+        if federated_model:
+            prediction["federated_baseline_congestion"] = round(federated_model.predict(summary), 1)
+            federated_model.observe(summary)
+            prediction["federated_validation_mae"] = federated_model.validation_mae
+            federated_update = federated_model.export_update()
         refresh_peer_statuses()
         candidates = [addr for addr, peer in peer_table.items() if peer.get("status") != "unreachable"]
         targets = random.sample(candidates, min(GOSSIP_FANOUT, len(candidates)))
         if targets:
-            await send_gossip(targets, make_gossip_message(summary))
+            await send_gossip(
+                targets,
+                make_gossip_message(summary, prediction, federated_update=federated_update),
+            )
         enqueue_kafka({
             "node_id": NODE_ID, "zone": NODE_ZONE, "status": state["status"],
             "last_heartbeat": state["last_heartbeat"], "processing_load": state["processing_load"],
@@ -378,6 +501,7 @@ async def gossip_loop():
 
 
 async def heartbeat_loop():
+    global degraded_until
     while True:
         await asyncio.sleep(HEARTBEAT_S)
         state["last_heartbeat"] = utc_iso()
@@ -393,7 +517,12 @@ async def start_kafka_reconnect_task():
 
 async def run():
     for addr in PEER_ADDRS:
-        peer_table.setdefault(addr, {"id": None, "last_seen": utc_iso(), "summary": {}, "status": "online"})
+        peer_table.setdefault(addr, {"id": None, "last_seen": "", "summary": {}, "status": "unknown"})
+    generate_zone_summary()
+    if local_predictor:
+        local_predictor.load()
+        if local_predictor.loaded:
+            local_predictor.seed_windows_from_cassandra()
     if KAFKA_OK:
         asyncio.create_task(kafka_reconnect_loop())
     asyncio.create_task(gossip_loop())

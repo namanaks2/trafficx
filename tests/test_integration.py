@@ -43,6 +43,9 @@ async def test_kafka_roundtrip():
         pytest.skip(f"Kafka unavailable: {e}")
     try:
         await cons.start()
+        async with asyncio.timeout(10):
+            while not cons.assignment():
+                await asyncio.sleep(0.05)
         await prod.send_and_wait("traffic.raw", value=test_msg, key=b"test")
         try:
             async with asyncio.timeout(10):

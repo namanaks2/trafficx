@@ -68,6 +68,8 @@ def generate_event(road: dict) -> dict:
         "event_type":      "observation",
         "timestamp":       datetime.utcnow().isoformat(),
         "source_node":     f"SENSOR-{road['road_id']}",
+        "source":          "traffic-simulated",
+        "is_simulated":    True,
     }
 
 

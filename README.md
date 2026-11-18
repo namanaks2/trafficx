@@ -29,7 +29,9 @@ Gossip is deliberately implemented as **HTTP gossip over multiple processes**, n
 | TensorFlow LSTM | Real model trained on synthetic or METR-LA data |
 | Synthetic traffic observations | Simulated and labelled |
 | HTTP edge gossip, peer discovery, signatures, ledger | Real implementation |
-| Edge/node Kafka fallback and replay buffer | Real implementation |
+| Edge/node Kafka fallback and replay buffer | Bounded memory queue with ordered SQLite spill/replay when configured |
+| Federated baseline | Optional experimental local linear training and signed gossip FedAvg; synthetic samples only |
+| Raw traffic processing | UTC normalization, schema/range checks, bounded event-ID deduplication |
 | Camera feed | Real YOLOv8 only when video/model are supplied; otherwise `camera-simulated` |
 | GPS trace | Simulated, coordinates rounded for k-anonymity |
 | Social feed | Simulated; DistilBERT or keyword fallback |
@@ -47,28 +49,50 @@ Metrics in `results/ml_metrics.json` come from a real training run on the synthe
 
 The test set is chronological and the scaler is fitted only on the training split.
 
+The anomaly model's latest synthetic holdout metrics are stored in `results/anomaly_metrics.json`: ML F1 0.1639 (precision 0.3390, recall 0.1081); rule baseline F1 0.2468 (precision 0.1851, recall 0.3703). The rule baseline currently has higher F1; these synthetic scores are not real-world validation.
+
 ## Run
 
-```bash
-docker compose up -d kafka cassandra
-docker compose up kafka-init cassandra-init
-cd backend
-python -m app.ml.lstm_train --dataset synthetic --epochs 20 --seeds 3
-python -m app.ml.anomaly_train
-cd ..
-python -m pytest tests/test_predictor_alignment.py -q
-python -m pytest tests/test_integration.py -q
-docker compose up -d
-cd frontend && npm install && npm run dev
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+docker compose config
+docker compose up -d --build
+docker compose ps
+Invoke-RestMethod http://localhost:8000/health
 ```
+
+Docker Compose builds and starts Kafka and Cassandra first, runs one-shot topic/schema initialization containers, then starts the backend, producers, three edge nodes, and frontend. Open `http://localhost:3000`; backend API docs are at `http://localhost:8000/api/docs`. The template `.env` is for local development; replace its secrets before exposing services.
+
+The Compose file uses Bitnami's archived `bitnamilegacy/kafka:3.6.1` image to retain the current Kafka configuration. It is intended for local/demo use, not production deployments. Kafka is published at `localhost:9092` for host clients; services inside Compose should use `kafka:9092`.
+
+On a fresh checkout, train optional local models from inside the running backend container, then restart services that load those artifacts:
+
+```powershell
+docker compose exec backend python -m app.ml.lstm_train --dataset synthetic --epochs 20 --seeds 3
+docker compose exec backend python -m app.ml.anomaly_train
+docker compose restart backend node-a node-b node-c
+```
+
+`docker compose down` stops the stack while retaining database and edge spill volumes. Avoid `docker compose down -v` unless you intend to delete that stored data.
 
 Benchmarks:
 
 ```bash
-sh benchmarks/run_all.sh
+# PowerShell
+$env:GOSSIP_NODE_SETS = "3=http://localhost:7001,http://localhost:7002,http://localhost:7003"
+python benchmarks/bench_gossip.py
+python benchmarks/bench_api.py
+python benchmarks/bench_e2e.py
+python benchmarks/bench_fault.py --execute
 ```
 
-Benchmark scripts report placeholders for measurements that require a running Docker stack; they do not invent successful measurements.
+These scripts require a running stack and report only measured results. `bench_fault.py` stops and restarts the specifically named Docker containers; review its arguments and use `--execute` deliberately. The gossip benchmark supports separately configured 3-, 6-, and 12-node URL sets via `GOSSIP_NODE_SETS` (semicolon-separated groups). The complete Docker Compose file starts three edge nodes.
+
+`results/bench_api.json` contains 50 sequential local demo-mode requests to `/api/traffic/locations` (p50 0.86 ms, p95 1.15 ms on the current development machine). This is a simulated-provider API measurement, not full-stack or production performance.
+
+The default stack uses simulated camera/GPS/social inputs unless real source configuration is supplied. Train the LSTM and anomaly models from `backend/` before the compose run if you want model-backed inference; generated model artifacts are local outputs and are not included in source control.
+
+Set `ENABLE_FEDERATED=true` in `.env` to enable the experimental edge linear-regression baseline. Nodes exchange signed model weights, sample counts, and validation metrics while keeping observations local; they train on simulated local samples and report a rolling held-out MAE. This is not federated LSTM training and does not provide differential privacy or secure aggregation.
 
 ## Render deployment
 

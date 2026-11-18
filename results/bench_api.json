@@ -1,0 +1,15 @@
+{
+  "status": "measured",
+  "endpoint": "/api/traffic/locations",
+  "samples": 50,
+  "warmup_requests": 5,
+  "p50_ms": 0.86,
+  "p95_ms": 1.15,
+  "mean_ms": 0.91,
+  "request_rate_per_s": 1073.16,
+  "traffic_sources": [
+    "simulated"
+  ],
+  "demo_mode": true,
+  "traffic_provider": "simulated"
+}

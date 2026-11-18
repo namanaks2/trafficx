@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 
@@ -6,7 +7,10 @@ class Settings(BaseSettings):
     # ── API ──────────────────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    secret_key: str = "trafficx-dev-secret-key-change-in-production"
+    secret_key: str = Field(
+        default="trafficx-dev-secret-key-change-in-production",
+        validation_alias=AliasChoices("JWT_SECRET", "SECRET_KEY"),
+    )
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
@@ -49,6 +53,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 settings = Settings()

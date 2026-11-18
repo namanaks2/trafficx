@@ -1,1 +1,5 @@
-{"status": "generated_placeholder", "note": "Run against Docker network for real measurements", "results": [{"nodes": 3, "p50_ms": 34.95, "p95_ms": 41.29, "simulated": true}, {"nodes": 6, "p50_ms": 40.59, "p95_ms": 46.0, "simulated": true}, {"nodes": 12, "p50_ms": 50.74, "p95_ms": 55.4, "simulated": true}]}
+{
+  "status": "requires_running_stack",
+  "note": "No real gossip benchmark has been run in this environment.",
+  "results": []
+}

@@ -1,20 +1,26 @@
 {
   "training_date": "2026-11-18",
-  "model": "isolation_forest",
-  "threshold": 0.6087480626004813,
+  "dataset": "synthetic",
+  "seed": 42,
+  "evaluation": "chronological test windows with natural incidents and labelled injected anomalies",
+  "normal_train_windows": 20000,
+  "normal_validation_windows": 12639,
+  "test_windows": 12905,
+  "injected_anomalies": 258,
+  "threshold": 0.6031781764391213,
   "injected_types": [
     "sudden_speed_drop",
     "sensor_stuck",
     "vehicle_count_spike"
   ],
   "ml": {
-    "precision": 0.0077,
-    "recall": 0.0039,
-    "f1": 0.0052
+    "precision": 0.339,
+    "recall": 0.1081,
+    "f1": 0.1639
   },
   "rule_based": {
-    "precision": 0.0556,
-    "recall": 0.2558,
-    "f1": 0.0913
+    "precision": 0.1851,
+    "recall": 0.3703,
+    "f1": 0.2468
   }
 }

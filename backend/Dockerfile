@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
+RUN pip install --no-cache-dir cassandra-driver==3.29.2
 COPY . .
 
 EXPOSE 8000

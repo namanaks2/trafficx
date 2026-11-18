@@ -6,6 +6,8 @@ Run:  uvicorn app.main:app --reload --port 8000
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+import math
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,8 +29,54 @@ logger = logging.getLogger(__name__)
 
 # ── Kafka handlers (only called when Kafka is connected) ──────────────────────
 
+def normalize_traffic_event(event: dict) -> dict:
+    event_id = event.get("event_id")
+    road_id = event.get("road_id")
+    if not isinstance(event_id, str) or not event_id or len(event_id) > 128:
+        raise ValueError("traffic event requires a valid event_id")
+    if not isinstance(road_id, str) or not road_id:
+        raise ValueError("traffic event requires a road_id")
+
+    timestamp = event.get("timestamp")
+    if not isinstance(timestamp, str) or not timestamp:
+        raise ValueError("traffic event requires an ISO-8601 timestamp")
+    if any(isinstance(event.get(name), bool) for name in ("speed", "vehicle_count", "congestion_level")):
+        raise ValueError("traffic event measurements must be numeric, not boolean")
+    try:
+        parsed_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("traffic event timestamp must be ISO-8601") from exc
+    if parsed_timestamp.tzinfo is None:
+        parsed_timestamp = parsed_timestamp.replace(tzinfo=timezone.utc)
+
+    try:
+        speed = float(event["speed"])
+        vehicle_count = float(event["vehicle_count"])
+        congestion = float(event["congestion_level"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("traffic event requires numeric speed, vehicle_count, and congestion_level") from exc
+    if not all(math.isfinite(value) for value in (speed, vehicle_count, congestion)):
+        raise ValueError("traffic event measurements must be finite")
+    if not 0 <= speed <= 250 or not 0 <= vehicle_count <= 1_000_000 or not vehicle_count.is_integer():
+        raise ValueError("traffic event speed or vehicle_count is outside the valid range")
+    if not 0 <= congestion <= 100:
+        raise ValueError("traffic event congestion_level must be between 0 and 100")
+
+    normalized = dict(event)
+    normalized.update({
+        "timestamp": parsed_timestamp.astimezone(timezone.utc).isoformat(),
+        "speed": speed,
+        "vehicle_count": int(vehicle_count),
+        "congestion_level": congestion,
+        "source_node": event.get("source_node", "unknown"),
+        "event_type": event.get("event_type", "observation"),
+    })
+    return normalized
+
+
 async def handle_raw_traffic(msg: dict, meta):
     from .db.cassandra_client import cassandra
+    msg = normalize_traffic_event(msg)
     msg["kafka_offset"] = meta.offset
     cassandra.insert_traffic_event(msg)
     await ws_manager.broadcast_traffic(msg)
@@ -51,6 +99,10 @@ async def handle_node_status(msg: dict, meta):
     from .db.cassandra_client import cassandra
     cassandra.insert_node_health(msg)
     await ws_manager.broadcast_node_status(msg)
+
+
+async def handle_external_source(msg: dict, meta):
+    await ws_manager.broadcast({"type": "source_event", "data": msg}, "all")
 
 
 async def handle_prediction(msg: dict, meta):
@@ -88,13 +140,17 @@ async def lifespan(app: FastAPI):
         await producer.start(settings.kafka_bootstrap_servers)
         consumer.on("traffic.raw",        handle_raw_traffic)
         consumer.on("traffic.node_status", handle_node_status)
+        consumer.on("traffic.gps", handle_external_source)
+        consumer.on("traffic.social", handle_external_source)
+        consumer.on("traffic.camera", handle_external_source)
         consumer.on("traffic.predictions", handle_prediction)
         consumer.on("traffic.incidents",   handle_incident)
         await consumer.start(
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id=settings.kafka_consumer_group,
             topics=["traffic.raw", "traffic.predictions",
-                    "traffic.incidents", "traffic.node_status"],
+                    "traffic.incidents", "traffic.node_status",
+                    "traffic.gps", "traffic.social", "traffic.camera"],
         )
     else:
         logger.info("DEMO MODE — Kafka integration disabled. Set DEMO_MODE=false to enable.")

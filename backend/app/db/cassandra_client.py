@@ -41,7 +41,7 @@ class CassandraClient:
                 contact_points=contact_points,
                 port=port,
                 auth_provider=auth,
-                load_balancing_policy=DCAwareRoundRobinPolicy(local_dc='dc1'),
+                load_balancing_policy=DCAwareRoundRobinPolicy(),
                 default_retry_policy=RetryPolicy(),
                 connect_timeout=10,
                 control_connection_timeout=10,

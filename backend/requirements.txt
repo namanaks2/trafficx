@@ -19,9 +19,7 @@ httpx==0.28.0
 # Kafka (optional — gracefully disabled when Kafka is not running)
 aiokafka==0.11.0
 
-# Cassandra (optional — gracefully disabled when Cassandra is not running)
-# cassandra-driver does not yet support Python 3.13 — use 3.29.2 dev or skip
-# cassandra-driver==3.29.1
+# Cassandra (optional for local Python 3.13; backend Dockerfile installs 3.29.2 on Python 3.11)
 
 # ML — Python 3.13 compatible versions
 numpy>=2.1.0
