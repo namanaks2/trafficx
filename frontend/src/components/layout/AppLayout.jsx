@@ -7,7 +7,7 @@ import TopBar from './TopBar';
 import DemoBadge from '../ui/DemoBadge';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 
-export default function AppLayout({ children, title, subtitle }) {
+export default function AppLayout({ children, title, subtitle, dataStatus }) {
   const { sidebarCollapsed, presentationMode } = useApp();
   const { isMobile } = useViewMode();
   const isLargeScreen = useMediaQuery('(min-width: 768px)');
@@ -37,11 +37,11 @@ export default function AppLayout({ children, title, subtitle }) {
       <div
         className="flex-1 flex flex-col min-w-0 w-full"
         style={showDesktopSidebar
-          ? { marginLeft: sidebarCollapsed ? 68 : 240, transition: 'margin-left 0.25s ease' }
+          ? { marginLeft: sidebarCollapsed ? 76 : 252, transition: 'margin-left 0.25s ease' }
           : { marginLeft: 0 }
         }
       >
-        <TopBar title={title} subtitle={subtitle} showMenuBtn={!showDesktopSidebar} />
+        <TopBar title={title} subtitle={subtitle} dataStatus={dataStatus} showMenuBtn={!showDesktopSidebar} />
 
         <main className="flex-1 overflow-auto">
           <AnimatePresence mode="wait">
@@ -64,7 +64,7 @@ export default function AppLayout({ children, title, subtitle }) {
       {/* Mobile bottom nav + drawer — shown in mobile mode or small screens */}
       {showMobileNav && <MobileNav />}
 
-      <DemoBadge />
+      <DemoBadge dataStatus={dataStatus} />
     </div>
   );
 }

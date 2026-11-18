@@ -1,42 +1,50 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Maximize2, Minimize2, Wifi, WifiOff, ChevronDown } from 'lucide-react';
+import { Bell, ChevronDown, MapPin } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
 import ThemeToggle from '../ui/ThemeToggle';
 
-export default function TopBar({ title, subtitle }) {
-  const { unreadCount, notifications, markNotificationRead,
-          presentationMode, setPresentationMode,
-          liveUpdates, setLiveUpdates } = useApp();
+export default function TopBar({ title, subtitle, dataStatus }) {
+  const { unreadCount, notifications, markNotificationRead } = useApp();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showNotif, setShowNotif] = useState(false);
   const [showUser,  setShowUser]  = useState(false);
 
   return (
-    <header className="h-12 border-b border-border-subtle bg-bg-secondary/95 backdrop-blur-sm
+    <header className="h-[72px] border-b border-[#e9edf2] bg-white/95 backdrop-blur-sm
                        flex items-center justify-between px-3 sticky top-0 z-30 shrink-0 gap-2">
       {/* Title */}
-      <div className="min-w-0 flex-1">
-        <h1 className="text-sm font-semibold text-text-primary truncate leading-tight">{title}</h1>
-        {subtitle && <p className="text-[10px] text-text-muted truncate leading-tight hidden sm:block">{subtitle}</p>}
+      <div className="min-w-0 flex-1 px-2 md:px-4">
+        <h1 className="text-xl md:text-2xl font-extrabold text-[#171923] truncate leading-tight">
+          {title === 'Overview' ? `Good Evening, ${user?.name?.split(' ')[0] || 'Alex'} 👋` : title}
+        </h1>
+        {subtitle && <p className="text-xs text-[#697586] truncate leading-tight mt-1 hidden sm:block">
+          {title === 'Overview' ? "Here's what's happening on Delhi NCR roads today." : subtitle}
+        </p>}
       </div>
 
       {/* Right controls */}
       <div className="flex items-center gap-1 shrink-0">
 
-        {/* Live dot */}
-        <button onClick={() => setLiveUpdates(!liveUpdates)}
-          className={`hidden sm:flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold border transition-all ${
-            liveUpdates
-              ? 'bg-status-success/10 text-status-success border-status-success/30'
-              : 'bg-bg-elevated text-text-muted border-border-subtle'
-          }`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${liveUpdates ? 'bg-status-success animate-pulse' : 'bg-text-muted'}`} />
-          {liveUpdates ? 'Live' : 'Off'}
+        <button className="hidden md:flex items-center gap-2 h-10 px-4 rounded-xl border border-[#dde3ea] bg-white text-sm font-semibold text-[#242832] shadow-sm">
+          <MapPin size={16} className="text-[#5d6675]" />
+          Delhi NCR
+          <ChevronDown size={14} className="text-[#9aa3af]" />
         </button>
+
+        {dataStatus && (
+          <div className={`hidden sm:flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-bold ${
+            dataStatus === 'live' ? 'border-green-200 bg-green-50 text-green-700' :
+            dataStatus === 'offline' ? 'border-red-200 bg-red-50 text-red-700' :
+            'border-amber-200 bg-amber-50 text-amber-800'
+          }`}>
+            <div className={`h-1.5 w-1.5 rounded-full ${dataStatus === 'live' ? 'bg-green-500 animate-pulse' : dataStatus === 'offline' ? 'bg-red-500' : 'bg-amber-500'}`} />
+            {dataStatus === 'live' ? 'TomTom Live' : dataStatus === 'mixed' ? 'Mixed Feed' : dataStatus === 'offline' ? 'API Offline' : dataStatus === 'connecting' ? 'Connecting' : 'Simulated'}
+          </div>
+        )}
 
         {/* Theme */}
         <ThemeToggle compact />

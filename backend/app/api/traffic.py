@@ -1,8 +1,11 @@
 ﻿"""Traffic data API endpoints"""
+import asyncio
 from fastapi import APIRouter
 import random
 from datetime import datetime
 
+from ..core.config import settings
+from ..integrations.adapters import get_tomtom_flow
 from ..ml.lstm_predictor import lstm_predictor
 from ..network.ledger import ledger
 from ..network.node import node_network
@@ -10,15 +13,15 @@ from ..network.node import node_network
 router = APIRouter(prefix="/api/traffic", tags=["traffic"])
 
 LOCATIONS = [
-    {"id": "node-001", "name": "Downtown Junction",      "lat": 40.7128, "lng": -74.0060, "zone": "Central", "node_id": "TXN-001"},
-    {"id": "node-002", "name": "Highway I-95 North",     "lat": 40.7580, "lng": -73.9855, "zone": "North",   "node_id": "TXN-002"},
-    {"id": "node-003", "name": "Bridge Crossing Alpha",  "lat": 40.6892, "lng": -74.0445, "zone": "South",   "node_id": "TXN-003"},
-    {"id": "node-004", "name": "Airport Expressway",     "lat": 40.6413, "lng": -73.7781, "zone": "East",    "node_id": "TXN-004"},
-    {"id": "node-005", "name": "Westside Boulevard",     "lat": 40.7549, "lng": -74.0025, "zone": "West",    "node_id": "TXN-005"},
+    {"id": "node-001", "name": "NH-48 Gurgaon",                  "lat": 28.4595, "lng": 77.0266, "zone": "Gurugram", "node_id": "TXN-001"},
+    {"id": "node-002", "name": "DND Flyway",                     "lat": 28.5762, "lng": 77.3070, "zone": "Noida",    "node_id": "TXN-002"},
+    {"id": "node-003", "name": "Delhi-Meerut Expressway",        "lat": 28.6710, "lng": 77.4520, "zone": "Ghaziabad","node_id": "TXN-003"},
+    {"id": "node-004", "name": "Outer Ring Road",                "lat": 28.5672, "lng": 77.2100, "zone": "Delhi",    "node_id": "TXN-004"},
+    {"id": "node-005", "name": "Noida-Greater Noida Expressway", "lat": 28.4670, "lng": 77.5040, "zone": "Noida",    "node_id": "TXN-005"},
 ]
 
 
-def _get_live_reading(location: dict) -> dict:
+def _get_simulated_reading(location: dict) -> dict:
     hour = datetime.utcnow().hour
     is_rush = (7 <= hour <= 9) or (17 <= hour <= 19)
     vehicle_count = random.randint(300, 850) if is_rush else random.randint(80, 400)
@@ -31,29 +34,64 @@ def _get_live_reading(location: dict) -> dict:
         "congestion": round(congestion, 1),
         "last_update": datetime.utcnow().isoformat(),
         "status": "active",
+        "source": "simulated",
+        "is_simulated": True,
     }
+
+
+async def _get_road_reading(location: dict) -> dict:
+    flow = await get_tomtom_flow(
+        location["lat"],
+        location["lng"],
+        api_key=settings.tomtom_api_key,
+    )
+    if flow["source"] == "tomtom":
+        current_speed = float(flow["currentSpeed"])
+        free_flow_speed = float(flow["freeFlowSpeed"])
+        congestion = max(0, min(100, (1 - current_speed / free_flow_speed) * 100)) if free_flow_speed > 0 else 0
+        return {
+            **location,
+            "vehicle_count": None,
+            "avg_speed": round(current_speed, 1),
+            "free_flow_speed": round(free_flow_speed, 1),
+            "congestion": round(congestion, 1),
+            "last_update": datetime.utcnow().isoformat(),
+            "status": "active",
+            "source": "tomtom",
+            "is_simulated": False,
+            "confidence": flow.get("confidence"),
+        }
+
+    reading = _get_simulated_reading(location)
+    if flow.get("reason"):
+        reading["source_note"] = flow["reason"]
+    return reading
 
 
 @router.get("/locations")
 async def get_locations():
-    """Get all monitoring locations with live simulated readings."""
-    return [_get_live_reading(loc) for loc in LOCATIONS]
+    """Get current road readings, using TomTom when configured and simulation otherwise."""
+    return await asyncio.gather(*(_get_road_reading(loc) for loc in LOCATIONS))
 
 
 @router.get("/summary")
 async def get_summary():
-    """Get city-wide traffic summary."""
-    readings = [_get_live_reading(loc) for loc in LOCATIONS]
+    """Summarize current monitored roads and report whether data is simulated."""
+    readings = await get_locations()
     avg_congestion = sum(r["congestion"] for r in readings) / len(readings)
     avg_speed = sum(r["avg_speed"] for r in readings) / len(readings)
-    total_vehicles = sum(r["vehicle_count"] for r in readings)
+    vehicle_counts = [r["vehicle_count"] for r in readings if r["vehicle_count"] is not None]
+    live_roads = sum(not r["is_simulated"] for r in readings)
+    source = "tomtom" if live_roads == len(readings) else "mixed" if live_roads else "simulated"
     return {
         "avg_congestion": round(avg_congestion, 1),
         "avg_speed": round(avg_speed, 1),
-        "total_vehicles": total_vehicles,
+        "total_vehicles": sum(vehicle_counts) if vehicle_counts else None,
         "active_nodes": len(readings),
+        "live_roads": live_roads,
+        "source": source,
         "timestamp": datetime.utcnow().isoformat(),
-        "is_demo": True,
+        "is_demo": live_roads == 0,
     }
 
 
@@ -70,6 +108,8 @@ async def get_hourly_data():
             "vehicles": max(50, base + random.randint(-40, 40)),
             "speed": 22 if is_rush else 65 if is_night else 45,
             "congestion": 75 if is_rush else 10 if is_night else 40,
+            "source": "simulated",
+            "is_simulated": True,
         })
     return data
 
@@ -86,7 +126,7 @@ async def get_prediction(location_id: str):
     if not loc:
         return {"error": "Location not found"}
 
-    reading = _get_live_reading(loc)
+    reading = _get_simulated_reading(loc)
     current = reading["congestion"]
 
     # Build event for the LSTM predictor (uses TRAFFIC_TZ bucketing internally)
@@ -148,7 +188,7 @@ async def get_all_predictions():
     """Get LSTM predictions for all monitored locations."""
     results = []
     for loc in LOCATIONS:
-        reading = _get_live_reading(loc)
+        reading = _get_simulated_reading(loc)
         current = reading["congestion"]
         event = {
             "road_id":       loc["id"],

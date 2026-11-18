@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 const ThemeContext = createContext(null);
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(() => localStorage.getItem('trafficx_theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('trafficx_theme') || 'light');
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

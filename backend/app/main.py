@@ -14,7 +14,7 @@ from .core.config import settings
 from .kafka.producer import producer
 from .kafka.consumer import consumer
 from .websockets.manager import ws_manager
-from .api import traffic, incidents, nodes, analytics, kafka_api, health_api
+from .api import traffic, incidents, nodes, analytics, kafka_api, health_api, routes
 from .detection.incident_detector import detect_incident
 from .ml.lstm_predictor import lstm_predictor
 
@@ -136,6 +136,7 @@ app.include_router(nodes.router)
 app.include_router(analytics.router)
 app.include_router(kafka_api.router)
 app.include_router(health_api.router)
+app.include_router(routes.router)
 
 
 # ── WebSocket endpoints ───────────────────────────────────────────────────────
@@ -176,6 +177,10 @@ async def root():
         "name": "TrafficX API",
         "version": "2.0.0",
         "demo_mode": settings.demo_mode,
+        "traffic_provider": {
+            "name": "TomTom" if settings.tomtom_api_key else "simulated",
+            "configured": bool(settings.tomtom_api_key),
+        },
         "kafka": producer.connected,
         "cassandra": cass_ok,
         "lstm": lstm_predictor.loaded,
@@ -193,6 +198,10 @@ async def health():
     return {
         "status": "ok",
         "demo_mode": settings.demo_mode,
+        "traffic_provider": {
+            "name": "TomTom" if settings.tomtom_api_key else "simulated",
+            "configured": bool(settings.tomtom_api_key),
+        },
         "kafka": {"producer": producer.connected, "consumer": consumer.connected},
         "cassandra": cass_status,
         "lstm": {"loaded": lstm_predictor.loaded,
