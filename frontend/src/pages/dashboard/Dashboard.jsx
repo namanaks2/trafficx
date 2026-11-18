@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
-  Activity, Zap, Gauge, Wifi, Brain,
+  Activity, Zap, Gauge, Wifi, Brain, AlertTriangle,
   Map, Route, CalendarDays, TrendingUp, TrendingDown,
   ChevronDown, ArrowRight
 } from 'lucide-react';
