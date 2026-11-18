@@ -14,7 +14,7 @@ from .core.config import settings
 from .kafka.producer import producer
 from .kafka.consumer import consumer
 from .websockets.manager import ws_manager
-from .api import traffic, incidents, nodes, analytics, kafka_api, health_api
+from .api import traffic, incidents, nodes, analytics, kafka_api, health_api, routes
 from .detection.incident_detector import detect_incident
 from .ml.lstm_predictor import lstm_predictor
 
@@ -136,6 +136,7 @@ app.include_router(nodes.router)
 app.include_router(analytics.router)
 app.include_router(kafka_api.router)
 app.include_router(health_api.router)
+app.include_router(routes.router)
 
 
 # ── WebSocket endpoints ───────────────────────────────────────────────────────

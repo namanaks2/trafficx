@@ -10,7 +10,10 @@ async function request(path, options = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
-  if (!res.ok) throw new Error(`API request failed (${res.status})`);
+  if (!res.ok) {
+    const payload = await res.json();
+    throw new Error(typeof payload.detail === 'string' ? payload.detail : `API request failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -35,5 +38,11 @@ export const api = {
   },
   health: {
     status: () => request('/health'),
+  },
+  routes: {
+    search: (origin, destination) => request('/api/routes/', {
+      method: 'POST',
+      body: JSON.stringify({ origin, destination }),
+    }),
   },
 };

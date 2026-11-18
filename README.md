@@ -74,6 +74,8 @@ Benchmark scripts report placeholders for measurements that require a running Do
 
 The backend can serve Delhi NCR road-flow readings from TomTom when `TOMTOM_API_KEY` is configured. Without the key, traffic endpoints deliberately return readings labelled `simulated`; adding `DEMO_MODE=false` does not provide a traffic data source.
 
+Smart Routes uses the backend `POST /api/routes/` endpoint to geocode Indian place names and calculate traffic-aware driving routes through TomTom Search and Routing APIs. Enable both APIs for the TomTom key. The key stays on the backend; the frontend calls this endpoint through `VITE_API_URL`. TomTom supplies route geometry, estimated travel time, and traffic delay; it does not provide the dashboard's demo congestion-by-road-segment values.
+
 For a Render Docker web service:
 
 1. Set the Dockerfile path to `backend/Dockerfile` (or set the root directory to `backend` and use `Dockerfile`).
