@@ -3,7 +3,8 @@ Optional external API adapters.
 All adapters return simulated data when credentials are absent.
 Never make external APIs mandatory for the application to start.
 """
-import os, logging, math, random
+import os, logging, math, random, asyncio
+import re
 from datetime import datetime
 from typing import Optional
 from urllib.parse import quote
@@ -21,6 +22,63 @@ class TomTomRoutingError(RuntimeError):
 
 class TomTomLocationNotFoundError(TomTomRoutingError):
     pass
+
+
+async def geocode_locations(query: str, api_key: Optional[str] = None, limit: int = 5) -> list:
+    key = api_key or os.getenv("TOMTOM_API_KEY")
+    search_query = query.strip()
+    if not search_query:
+        return []
+
+    async with httpx.AsyncClient(timeout=10, headers={"User-Agent": "TrafficX/2.0"}) as client:
+        if key:
+            try:
+                url = f"https://api.tomtom.com/search/2/search/{quote(search_query, safe='')}.json"
+                payload = await _get_tomtom_json(
+                    client,
+                    url,
+                    {"key": key, "countrySet": "IN", "limit": limit, "typeahead": "true"},
+                )
+                results = payload.get("results") if isinstance(payload, dict) else None
+                if isinstance(results, list) and results:
+                    locations = []
+                    for result in results:
+                        position = result.get("position") if isinstance(result, dict) else None
+                        address = result.get("address") if isinstance(result, dict) else None
+                        if not isinstance(position, dict):
+                            continue
+                        try:
+                            lat = float(position["lat"])
+                            lng = float(position["lon"])
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                        label = address.get("freeformAddress") if isinstance(address, dict) else search_query
+                        locations.append({"label": label or search_query, "lat": lat, "lng": lng})
+                    if locations:
+                        return locations
+            except TomTomRoutingError:
+                pass
+
+        payload = await client.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": f"{search_query}, India", "format": "jsonv2", "addressdetails": 1, "limit": limit, "countrycodes": "in"},
+        )
+        payload.raise_for_status()
+        results = payload.json()
+    locations = []
+    if isinstance(results, list):
+        for result in results:
+            try:
+                lat = float(result["lat"])
+                lng = float(result["lon"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            locations.append({
+                "label": result.get("display_name") or search_query,
+                "lat": lat,
+                "lng": lng,
+            })
+    return locations
 
 
 async def _get_tomtom_json(client: httpx.AsyncClient, url: str, params: dict) -> dict:
@@ -51,6 +109,33 @@ async def _get_tomtom_json(client: httpx.AsyncClient, url: str, params: dict) ->
 
 
 async def _geocode_tomtom(client: httpx.AsyncClient, query: str, api_key: str) -> dict:
+    coordinate_match = re.fullmatch(r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*", query)
+    if coordinate_match:
+        lat = float(coordinate_match.group(1))
+        lng = float(coordinate_match.group(2))
+        if not math.isfinite(lat) or not math.isfinite(lng) or not -90 <= lat <= 90 or not -180 <= lng <= 180:
+            raise TomTomRoutingError("TomTom received an invalid live location.")
+
+        url = f"https://api.tomtom.com/search/2/reverseGeocode/{lat},{lng}.json"
+        try:
+            payload = await _get_tomtom_json(client, url, {"key": api_key})
+            addresses = payload.get("addresses")
+            address = addresses[0].get("address") if isinstance(addresses, list) and addresses else None
+            label = address.get("freeformAddress") if isinstance(address, dict) else None
+            if label:
+                return {"query": query, "label": label, "lat": lat, "lng": lng}
+        except TomTomRoutingError:
+            pass
+
+        reverse_payload = await client.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lng, "format": "jsonv2", "accept-language": "en"},
+        )
+        reverse_payload.raise_for_status()
+        reverse_result = reverse_payload.json()
+        label = reverse_result.get("display_name") if isinstance(reverse_result, dict) else None
+        return {"query": query, "label": label or f"{lat:.6f},{lng:.6f}", "lat": lat, "lng": lng}
+
     url = f"https://api.tomtom.com/search/2/geocode/{quote(query, safe='')}.json"
     payload = await _get_tomtom_json(
         client,
@@ -100,6 +185,8 @@ async def get_tomtom_routes(origin_query: str, destination_query: str, api_key: 
                 "routeType": "fastest",
                 "maxAlternatives": 2,
                 "sectionType": "traffic",
+                "instructionsType": "text",
+                "language": "en-US",
             },
         )
 
@@ -142,18 +229,210 @@ async def get_tomtom_routes(origin_query: str, destination_query: str, api_key: 
         if distance_m <= 0 or travel_time_s <= 0:
             continue
 
+        instructions = []
+        for leg in legs:
+            for guidance in leg.get("guidance", {}).get("instructions", []):
+                if not isinstance(guidance, dict):
+                    continue
+                text = guidance.get("message") or guidance.get("instruction")
+                if text:
+                    instructions.append({
+                        "instruction": str(text),
+                        "distance_m": float(guidance.get("routeOffsetInMeters", 0)),
+                        "duration_s": 0,
+                    })
+
+        traffic_segments = []
+        sections = route.get("sections")
+        if isinstance(sections, list):
+            for section in sections:
+                if not isinstance(section, dict) or section.get("sectionType") != "TRAVEL_MODE":
+                    if not isinstance(section, dict):
+                        continue
+                start_index = section.get("startPointIndex")
+                end_index = section.get("endPointIndex")
+                if not isinstance(start_index, int) or not isinstance(end_index, int):
+                    continue
+                start_index = max(0, min(start_index, len(coordinates) - 1))
+                end_index = max(start_index + 1, min(end_index, len(coordinates) - 1))
+                segment_coords = coordinates[start_index:end_index + 1]
+                if len(segment_coords) < 2:
+                    continue
+
+                simple_category = str(section.get("simpleCategory") or "").upper()
+                effective_speed = section.get("effectiveSpeedInKmh")
+                congestion = 35
+                if "BLOCKED" in simple_category or "JAM" in simple_category:
+                    congestion = 90
+                elif "CONGESTED" in simple_category or "HEAVY" in simple_category:
+                    congestion = 75
+                elif "SLOW" in simple_category:
+                    congestion = 55
+                elif isinstance(effective_speed, (int, float)):
+                    congestion = max(10, min(95, round((1 - effective_speed / 80) * 100)))
+
+                traffic_segments.append({
+                    "coordinates": segment_coords,
+                    "congestion": congestion,
+                    "category": simple_category or "TRAFFIC",
+                })
+
         routes.append({
             "id": f"tomtom-{index + 1}",
             "distance_m": distance_m,
             "travel_time_s": travel_time_s,
             "traffic_delay_s": traffic_delay_s,
             "coordinates": coordinates,
+            "instructions": instructions,
+            "traffic_segments": traffic_segments,
+            "route_source": "TomTom",
         })
 
     if not routes:
         raise TomTomRoutingError("TomTom returned routes without usable map geometry.")
+    routes.sort(key=lambda route: route["travel_time_s"])
     return {
         "source": "tomtom",
+        "origin": origin,
+        "destination": destination,
+        "routes": routes,
+    }
+
+
+async def geocode_location(query: str, api_key: Optional[str] = None) -> dict:
+    locations = await geocode_locations(query, api_key=api_key, limit=1)
+    if not locations:
+        raise TomTomLocationNotFoundError(f"Could not find '{query}' in India.")
+    location = locations[0]
+    return {
+        "query": query,
+        "label": location["label"],
+        "lat": location["lat"],
+        "lng": location["lng"],
+    }
+
+
+async def get_osrm_routes(origin_query: str, destination_query: str, api_key: Optional[str] = None) -> dict:
+    key = api_key or os.getenv("TOMTOM_API_KEY")
+    async with httpx.AsyncClient(timeout=12, headers={"User-Agent": "TrafficX/2.0"}) as client:
+        origin = await geocode_location(origin_query, api_key)
+        destination = await geocode_location(destination_query, api_key)
+        url = (
+            f"https://router.project-osrm.org/route/v1/driving/"
+            f"{origin['lng']},{origin['lat']};{destination['lng']},{destination['lat']}"
+        )
+        response = await client.get(
+            url,
+            params={
+                "alternatives": "true",
+                "steps": "true",
+                "geometries": "geojson",
+                "overview": "full",
+                "annotations": "duration,distance",
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+    provider_routes = payload.get("routes") if isinstance(payload, dict) else None
+    if not isinstance(provider_routes, list) or not provider_routes:
+        raise TomTomRoutingError("No drivable route was found for these locations.")
+
+    routes = []
+    for index, route in enumerate(provider_routes[:3]):
+        if not isinstance(route, dict):
+            continue
+        geometry = route.get("geometry")
+        coordinates_geo = geometry.get("coordinates") if isinstance(geometry, dict) else None
+        if not isinstance(coordinates_geo, list) or len(coordinates_geo) < 2:
+            continue
+
+        coordinates = []
+        for point in coordinates_geo:
+            if not isinstance(point, list) or len(point) < 2:
+                continue
+            lng = float(point[0])
+            lat = float(point[1])
+            if math.isfinite(lat) and math.isfinite(lng):
+                coordinates.append([lat, lng])
+
+        distance_m = float(route.get("distance", 0))
+        travel_time_s = float(route.get("duration", 0))
+        instructions = []
+        legs = route.get("legs")
+        if isinstance(legs, list):
+            for leg in legs:
+                steps = leg.get("steps") if isinstance(leg, dict) else None
+                if not isinstance(steps, list):
+                    continue
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    maneuver = step.get("maneuver") if isinstance(step.get("maneuver"), dict) else {}
+                    name = step.get("name")
+                    instruction = str(maneuver.get("instruction") or "").strip()
+                    if not instruction:
+                        action = maneuver.get("type", "continue")
+                        modifier = maneuver.get("modifier")
+                        instruction = f"{action.replace('_', ' ').title()}"
+                        if modifier:
+                            instruction += f" {modifier}"
+                        if name:
+                            instruction += f" onto {name}"
+                    if instruction:
+                        instructions.append({
+                            "instruction": instruction,
+                            "distance_m": float(step.get("distance", 0)),
+                            "duration_s": float(step.get("duration", 0)),
+                        })
+
+        if distance_m <= 0 or travel_time_s <= 0 or len(coordinates) < 2:
+            continue
+
+        traffic_segments = []
+        if key:
+            sample_count = min(8, len(coordinates))
+            sample_indices = sorted(set(round(index * (len(coordinates) - 1) / max(1, sample_count - 1)) for index in range(sample_count)))
+            sample_points = [coordinates[index] for index in sample_indices]
+            flow_results = await asyncio.gather(*(
+                get_tomtom_flow(point[0], point[1], key)
+                for point in sample_points
+            ))
+            for sample_index, flow in enumerate(flow_results):
+                if flow.get("source") != "tomtom":
+                    continue
+                free_speed = float(flow.get("freeFlowSpeed", 0))
+                current_speed = float(flow.get("currentSpeed", 0))
+                if free_speed <= 0:
+                    continue
+                congestion = round(max(0, min(100, (1 - current_speed / free_speed) * 100)))
+                start_index = sample_indices[sample_index]
+                end_index = sample_indices[min(sample_index + 1, len(sample_indices) - 1)]
+                segment_coords = coordinates[start_index:end_index + 1]
+                if len(segment_coords) < 2:
+                    continue
+                traffic_segments.append({
+                    "coordinates": segment_coords,
+                    "congestion": congestion,
+                    "category": "Heavy traffic" if congestion >= 75 else "Moderate traffic" if congestion >= 55 else "Free-flow traffic",
+                })
+
+        routes.append({
+            "id": f"osrm-{index + 1}",
+            "distance_m": distance_m,
+            "travel_time_s": travel_time_s,
+            "traffic_delay_s": 0,
+            "coordinates": coordinates,
+            "instructions": instructions,
+            "traffic_segments": traffic_segments,
+            "route_source": "OSRM",
+        })
+
+    if not routes:
+        raise TomTomRoutingError("Route geometry was unavailable.")
+    routes.sort(key=lambda route: route["travel_time_s"])
+    return {
+        "source": "osrm",
         "origin": origin,
         "destination": destination,
         "routes": routes,

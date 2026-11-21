@@ -1,6 +1,9 @@
 from pydantic import AliasChoices, Field
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
-from typing import List, Optional
+from typing import Annotated, List, Optional
+import json
+from pydantic_settings import NoDecode
 
 
 class Settings(BaseSettings):
@@ -15,7 +18,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440
 
     # ── CORS ─────────────────────────────────────────────────────────────────
-    cors_origins: List[str] = [
+    cors_origins: Annotated[List[str], NoDecode] = [
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5175",
@@ -49,6 +52,19 @@ class Settings(BaseSettings):
     tomtom_api_key: Optional[str] = None
     here_api_key: Optional[str] = None
     openweather_api_key: Optional[str] = None
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            if value.startswith("["):
+                try:
+                    return json.loads(value)
+                except json.JSONDecodeError:
+                    pass
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
 
     class Config:
         env_file = ".env"

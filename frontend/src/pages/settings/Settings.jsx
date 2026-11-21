@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Lock, Bell, Shield, Eye, EyeOff, CheckCircle, AlertCircle, Palette, Sun, Moon, Monitor, Smartphone, BarChart3, Database, Network, ServerCog, ArrowUpRight } from 'lucide-react';
+import { User, Lock, Bell, Shield, Eye, EyeOff, CheckCircle, AlertCircle, Palette, Sun, Moon, BarChart3, Database, Network, ServerCog, ArrowUpRight } from 'lucide-react';
 import AppLayout from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { useTheme } from '../../context/ThemeContext';
-import { useViewMode } from '../../context/ViewModeContext';
 import { useNavigate } from 'react-router-dom';
 
 const ROLE_INFO = {
@@ -27,7 +26,6 @@ function Toggle({ active, onToggle }) {
 export default function Settings() {
   const { user, updateProfile } = useAuth();
   const { theme, setTheme } = useTheme();
-  const { mode, setMobile, setDesktop } = useViewMode();
   const navigate = useNavigate();
   const [tab, setTab] = useState('profile');
   const [name,    setName]    = useState(user?.name || '');
@@ -167,7 +165,6 @@ export default function Settings() {
           <div className="space-y-5">
             <div>
               <h3 className="text-sm font-bold text-text-primary mb-1">Appearance</h3>
-              <p className="text-xs text-text-muted">Choose how TrafficX is presented.</p>
             </div>
 
             <div>
@@ -186,29 +183,6 @@ export default function Settings() {
                     <div className="flex items-center justify-between mb-3">
                       <Icon size={16} className={theme === id ? 'text-accent-blue' : 'text-text-secondary'} />
                       {theme === id && <CheckCircle size={14} className="text-accent-blue" />}
-                    </div>
-                    <p className="text-xs font-semibold text-text-primary">{label}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-text-secondary mb-2">Layout</p>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { id:'desktop', label:'Desktop', icon:Monitor, action:setDesktop },
-                  { id:'mobile', label:'Mobile', icon:Smartphone, action:setMobile },
-                ].map(({ id, label, icon: Icon, action }) => (
-                  <button key={id} onClick={action}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      mode === id
-                        ? 'border-accent-blue bg-accent-blue/10'
-                        : 'border-border-subtle bg-bg-secondary hover:border-border-default'
-                    }`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <Icon size={16} className={mode === id ? 'text-accent-blue' : 'text-text-secondary'} />
-                      {mode === id && <CheckCircle size={14} className="text-accent-blue" />}
                     </div>
                     <p className="text-xs font-semibold text-text-primary">{label}</p>
                   </button>

@@ -1,5 +1,5 @@
 """Traffic-aware route search endpoints."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..core.config import settings
@@ -7,6 +7,8 @@ from ..integrations.adapters import (
     TomTomLocationNotFoundError,
     TomTomRoutingError,
     get_tomtom_routes,
+    get_osrm_routes,
+    geocode_locations,
 )
 
 router = APIRouter(prefix="/api/routes", tags=["routes"])
@@ -19,13 +21,20 @@ class RouteSearchRequest(BaseModel):
 
 @router.post("/")
 async def search_routes(data: RouteSearchRequest):
-    if not settings.tomtom_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail="Configure TOMTOM_API_KEY on the backend to use live routing.",
-        )
     try:
-        return await get_tomtom_routes(
+        if settings.tomtom_api_key:
+            try:
+                return await get_tomtom_routes(
+                    data.origin,
+                    data.destination,
+                    api_key=settings.tomtom_api_key,
+                )
+            except TomTomLocationNotFoundError:
+                pass
+            except TomTomRoutingError:
+                pass
+
+        return await get_osrm_routes(
             data.origin,
             data.destination,
             api_key=settings.tomtom_api_key,
@@ -34,3 +43,12 @@ async def search_routes(data: RouteSearchRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except TomTomRoutingError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/geocode")
+async def geocode_route_location(q: str = Query(min_length=2, max_length=150)):
+    try:
+        locations = await geocode_locations(q, api_key=settings.tomtom_api_key, limit=6)
+        return {"source": "tomtom" if settings.tomtom_api_key else "nominatim", "locations": locations}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Location search is unavailable.") from exc

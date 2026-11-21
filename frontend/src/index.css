@@ -1,33 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg-primary: #080D17;
-  --bg-secondary: #101827;
-  --bg-card: #141F30;
-  --bg-elevated: #1A2640;
-  --text-primary: #F8FAFC;
-  --text-secondary: #A7B1C2;
-  --text-muted: #65758C;
-  --border-subtle: #1E2D45;
-  --border-default: #243550;
-  --border-accent: #38BDF855;
+  --bg-primary: #080808;
+  --bg-secondary: #12110F;
+  --bg-card: #1F1C18;
+  --bg-elevated: #2A2520;
+  --text-primary: #F8F5F0;
+  --text-secondary: #BEB7AE;
+  --text-muted: #918880;
+  --border-subtle: #332E27;
+  --border-default: #4A4238;
+  --border-accent: #412D15;
 }
 
 :root[data-theme="light"] {
-  --bg-primary: #F4F7FB;
-  --bg-secondary: #FFFFFF;
+  --bg-primary: #E1DCC9;
+  --bg-secondary: #F1EDDF;
   --bg-card: #FFFFFF;
-  --bg-elevated: #EEF3F8;
-  --text-primary: #182230;
-  --text-secondary: #526174;
-  --text-muted: #7D8A9B;
-  --border-subtle: #E3E9F1;
-  --border-default: #CDD7E4;
-  --border-accent: #0EA5E966;
+  --bg-elevated: #F5F2E8;
+  --text-primary: #000000;
+  --text-secondary: #412D15;
+  --text-muted: #6F675E;
+  --border-subtle: #DDD7C7;
+  --border-default: #CFC6B1;
+  --border-accent: #412D1588;
 }
 
 @layer base {
@@ -39,6 +39,15 @@
     @apply bg-bg-primary text-text-primary font-sans;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Space Grotesk', 'Manrope', sans-serif;
+    letter-spacing: -0.025em;
+  }
+
+  button, input, select, textarea {
+    font-family: 'Manrope', system-ui, sans-serif;
   }
 
   ::-webkit-scrollbar {
@@ -261,4 +270,64 @@
 @keyframes nodePulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
   50% { box-shadow: 0 0 0 8px rgba(56, 189, 248, 0); }
+}
+
+@media (max-width: 767px) {
+  body { overflow-x: hidden; }
+  main { width: 100%; }
+  .glass-card, .metric-card { border-radius: 16px; }
+  input, button, select, textarea { min-height: 44px; }
+}
+
+:root[data-theme="light"] .glass-card {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: #DDD7C7;
+  box-shadow: 0 10px 30px rgba(65, 45, 21, 0.07);
+}
+
+:root[data-theme="light"] .input-field {
+  background: #FFFFFF;
+  border-color: #CEC7B7;
+  color: #000000;
+}
+
+:root[data-theme="light"] .btn-primary {
+  background: #412D15;
+  color: #FFFFFF;
+}
+
+:root[data-theme="light"] .btn-primary:hover {
+  background: #1F150C;
+}
+
+.dashboard-shell .bg-white {
+  background: var(--bg-card);
+}
+
+.dashboard-shell [class*="text-[#171923]"],
+.dashboard-shell [class*="text-[#202733]"],
+.dashboard-shell [class*="text-[#252b35]"],
+.dashboard-shell [class*="text-[#343b47]"] {
+  color: var(--text-primary);
+}
+
+.dashboard-shell [class*="border-[#edf0f3]"],
+.dashboard-shell [class*="border-[#e9edf2]"] {
+  border-color: var(--border-subtle);
+}
+
+.dashboard-shell [class*="bg-[#fbfcfd]"],
+.dashboard-shell [class*="bg-[#f1f5f9]"] {
+  background: var(--bg-elevated);
+}
+
+.dashboard-shell [class*="text-[#697586]"],
+.dashboard-shell [class*="text-[#858f9d]"],
+.dashboard-shell [class*="text-[#8993a1]"],
+.dashboard-shell [class*="text-[#788392]"] {
+  color: var(--text-muted);
+}
+
+:root[data-theme="light"] .dashboard-shell .bg-white {
+  background: #FFFFFF;
 }

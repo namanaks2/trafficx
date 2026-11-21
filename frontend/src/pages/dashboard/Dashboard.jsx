@@ -99,9 +99,65 @@ export default function Dashboard() {
     { title: 'Road Segments', value: locations.length || '--', icon: Activity, accent: 'text-[#ef4444]', bg: 'bg-[#fff1f1]' },
     { title: 'Average Speed', value: average('avg_speed')?.toFixed(1) ?? '--', unit: 'km/h', icon: Gauge, accent: 'text-[#f97316]', bg: 'bg-[#fff6e9]' },
     { title: 'Average Congestion', value: congestion?.toFixed(1) ?? '--', unit: '%', icon: Zap, accent: 'text-[#7c3aed]', bg: 'bg-[#f5f1ff]' },
-    { title: 'TomTom Coverage', value: locations.length ? `${liveRoads}/${locations.length}` : '--', icon: Wifi, accent: 'text-[#16a34a]', bg: 'bg-[#edf9f0]' },
-    { title: 'Kafka', value: health?.kafka?.consumer ? 'Connected' : 'Offline', icon: Activity, accent: health?.kafka?.consumer ? 'text-[#16a34a]' : 'text-[#f97316]', bg: 'bg-[#fff6e9]' },
-    { title: 'Forecast Model', value: health?.lstm?.loaded ? 'LSTM' : 'Rule-based', icon: Brain, accent: 'text-[#2563eb]', bg: 'bg-[#eef5ff]' },
+  ];
+  const tomtomStatus = dataStatus === 'live'
+    ? 'Connected'
+    : dataStatus === 'mixed' || (dataStatus === 'simulated' && health?.traffic_provider?.configured)
+      ? 'Degraded'
+      : dataStatus === 'offline'
+        ? 'Disconnected'
+        : dataStatus === 'connecting'
+          ? 'Checking'
+          : 'Simulated';
+  const kafkaStatus = health?.kafka
+    ? health.kafka.producer && health.kafka.consumer
+      ? 'Connected'
+      : health.kafka.producer || health.kafka.consumer
+        ? 'Degraded'
+        : 'Disconnected'
+    : dataStatus === 'offline'
+      ? 'Disconnected'
+      : 'Checking';
+  const modelName = health?.lstm?.model || (health?.lstm?.loaded ? 'LSTM' : 'Rule-based fallback');
+  const modelStatus = health?.lstm
+    ? health.lstm.loaded ? 'Active' : 'Fallback active'
+    : 'Checking';
+  const integrationStatusStyle = {
+    Connected: 'bg-green-50 text-green-700 ring-green-600/15',
+    Active: 'bg-green-50 text-green-700 ring-green-600/15',
+    Degraded: 'bg-amber-50 text-amber-800 ring-amber-600/15',
+    Simulated: 'bg-amber-50 text-amber-800 ring-amber-600/15',
+    Checking: 'bg-amber-50 text-amber-800 ring-amber-600/15',
+    'Fallback active': 'bg-amber-50 text-amber-800 ring-amber-600/15',
+    Disconnected: 'bg-red-50 text-red-700 ring-red-600/15',
+  };
+  const integrations = [
+    {
+      name: 'TomTom API',
+      description: 'Live road intelligence',
+      value: locations.length ? `${liveRoads}/${locations.length}` : '--',
+      detail: 'Road segments covered',
+      status: tomtomStatus,
+      icon: Wifi,
+    },
+    {
+      name: 'Apache Kafka',
+      description: 'Broker connection',
+      value: kafkaStatus,
+      detail: health?.kafka
+        ? `Producer ${health.kafka.producer ? 'online' : 'offline'} · consumer ${health.kafka.consumer ? 'online' : 'offline'}`
+        : 'Waiting for backend health',
+      status: kafkaStatus,
+      icon: Activity,
+    },
+    {
+      name: 'AI Forecast Engine',
+      description: 'Currently serving predictions',
+      value: modelName,
+      detail: health?.lstm?.loaded ? 'Forecast model loaded' : health?.lstm ? 'Using rule-based fallback' : 'Waiting for backend health',
+      status: modelStatus,
+      icon: Brain,
+    },
   ];
   const densityData = history.slice(-densityRange);
   const statusLabel = {
@@ -111,16 +167,14 @@ export default function Dashboard() {
     offline: 'Backend unavailable',
     connecting: 'Connecting',
   }[dataStatus];
-  const statusStyle = dataStatus === 'live'
-    ? 'border-green-200 bg-green-50 text-green-700'
-    : dataStatus === 'offline'
-      ? 'border-red-200 bg-red-50 text-red-700'
-      : 'border-amber-200 bg-amber-50 text-amber-800';
-
   return (
-    <AppLayout title="Overview" subtitle="Real-time traffic intelligence" dataStatus={dataStatus}>
-      <div className="space-y-5">
-        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-xs ${statusStyle}`}>
+    <AppLayout title="Overview" subtitle="Real-time traffic intelligence" dataStatus={dataStatus} dataHealth={health} lastUpdated={lastUpdated}>
+      <div className="dashboard-shell space-y-5">
+        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-xs ${
+          dataStatus === 'live' ? 'border-green-200 bg-green-50 text-green-700' :
+          dataStatus === 'offline' ? 'border-red-200 bg-red-50 text-red-700' :
+          'border-amber-200 bg-amber-50 text-amber-800'
+        }`}>
           <div className="flex items-center gap-2 font-bold">
             <span className={`h-2 w-2 rounded-full ${dataStatus === 'live' ? 'bg-green-500 animate-pulse' : dataStatus === 'offline' ? 'bg-red-500' : 'bg-amber-500'}`} />
             {statusLabel}
@@ -164,7 +218,7 @@ export default function Dashboard() {
           </div>
         </motion.section>
 
-        <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <section className="grid grid-cols-2 gap-3 md:grid-cols-3">
           {kpiCards.map((card, index) => (
             <motion.div
               key={card.title}
@@ -193,6 +247,49 @@ export default function Dashboard() {
               </div>
             </motion.div>
           ))}
+        </section>
+
+        <section className="rounded-2xl border border-[#e9edf2] bg-white p-4 shadow-[0_8px_24px_rgba(25,35,48,.055)] sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f1f5f9] text-[#536174]">
+                <Activity size={18} />
+              </span>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8993a1]">Platform overview</p>
+                <h3 className="mt-0.5 text-base font-extrabold tracking-tight text-[#171923] sm:text-[17px]">System Health &amp; Integrations</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-medium text-[#788392]">
+              <span className={`h-1.5 w-1.5 rounded-full ${dataStatus === 'live' ? 'bg-green-500' : dataStatus === 'offline' ? 'bg-red-500' : 'bg-amber-500'}`} />
+              {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Awaiting health check'}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {integrations.map(({ name, description, value, detail, status, icon: Icon }) => (
+              <div key={name} className="min-w-0 rounded-xl border border-[#edf0f3] bg-[#fbfcfd] p-4 transition-colors hover:border-[#dce2e9]">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#e7ebf0] bg-white text-[#697586] shadow-sm">
+                      <Icon size={16} />
+                    </span>
+                    <div className="min-w-0">
+                      <h4 className="truncate text-sm font-bold text-[#252b35]">{name}</h4>
+                      <p className="mt-0.5 truncate text-[11px] text-[#8993a1]">{description}</p>
+                    </div>
+                  </div>
+                  <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold ring-1 ring-inset ${integrationStatusStyle[status]}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${status === 'Connected' || status === 'Active' ? 'bg-green-500' : status === 'Disconnected' ? 'bg-red-500' : 'bg-amber-500'}`} />
+                    {status}
+                  </span>
+                </div>
+                <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+                  <span className="max-w-full truncate text-lg font-extrabold tracking-tight text-[#202733]" title={value}>{value}</span>
+                  <span className="text-[10px] font-semibold text-[#8993a1]">{detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">

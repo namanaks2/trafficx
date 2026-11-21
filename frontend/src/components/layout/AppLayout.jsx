@@ -1,26 +1,16 @@
 import { useApp } from '../../context/AppContext';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useViewMode } from '../../context/ViewModeContext';
-import DesktopSidebar from './DesktopSidebar';
-import MobileNav from './MobileNav';
 import TopBar from './TopBar';
+import QuickDock from '../ui/QuickDock';
 import DemoBadge from '../ui/DemoBadge';
-import { useMediaQuery } from '../../hooks/useMediaQuery';
 
-export default function AppLayout({ children, title, subtitle, dataStatus }) {
-  const { sidebarCollapsed, presentationMode } = useApp();
-  const { isMobile } = useViewMode();
-  const isLargeScreen = useMediaQuery('(min-width: 768px)');
-
-  // In mobile mode the frame provides the container — just render content
-  const showDesktopSidebar = !isMobile && isLargeScreen;
-  const showMobileNav      = isMobile || !isLargeScreen;
+export default function AppLayout({ children, title, subtitle, dataStatus, dataHealth, lastUpdated }) {
+  const { presentationMode } = useApp();
 
   if (presentationMode) {
     return (
       <div className="min-h-screen bg-bg-primary flex flex-col">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle bg-bg-secondary">
-          <span className="text-sm font-bold text-text-primary tracking-wider">TRAFFICX</span>
           <span className="demo-badge">PRESENTATION</span>
         </div>
         <main className="flex-1 overflow-auto p-4">{children}</main>
@@ -29,21 +19,10 @@ export default function AppLayout({ children, title, subtitle, dataStatus }) {
   }
 
   return (
-    <div className="min-h-screen bg-bg-primary flex">
-      {/* Desktop sidebar — only shown in desktop view mode on large screens */}
-      {showDesktopSidebar && <DesktopSidebar />}
-
-      {/* Main area */}
-      <div
-        className="flex-1 flex flex-col min-w-0 w-full"
-        style={showDesktopSidebar
-          ? { marginLeft: sidebarCollapsed ? 76 : 252, transition: 'margin-left 0.25s ease' }
-          : { marginLeft: 0 }
-        }
-      >
-        <TopBar title={title} subtitle={subtitle} dataStatus={dataStatus} showMenuBtn={!showDesktopSidebar} />
-
-        <main className="flex-1 overflow-auto">
+    <div className="min-h-screen bg-bg-primary">
+      <div className="flex min-h-screen flex-col">
+        <TopBar title={title} subtitle={subtitle} dataStatus={dataStatus} dataHealth={dataHealth} lastUpdated={lastUpdated} />
+        <main className="flex-1">
           <AnimatePresence mode="wait">
             <motion.div
               key={title}
@@ -51,19 +30,14 @@ export default function AppLayout({ children, title, subtitle, dataStatus }) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
-              /* Extra bottom padding clears the mobile bottom nav */
-              className="p-3 pb-24 md:p-5 lg:p-7 xl:px-8"
-              style={showDesktopSidebar ? { maxWidth: 1600, margin: '0 auto', width: '100%' } : {}}
+              className="mx-auto w-full max-w-[1600px] p-3 pb-28 md:p-5 md:pb-24 lg:px-7 lg:py-6"
             >
               {children}
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
-
-      {/* Mobile bottom nav + drawer — shown in mobile mode or small screens */}
-      {showMobileNav && <MobileNav />}
-
+      <QuickDock />
       <DemoBadge dataStatus={dataStatus} />
     </div>
   );

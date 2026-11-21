@@ -9,7 +9,6 @@ export function AppProvider({ children }) {
   const [nodes, setNodes] = useState(monitoringLocations);
   const [kpis, setKpis] = useState(kpiData);
   const [presentationMode, setPresentationMode] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [liveUpdates, setLiveUpdates] = useState(true);
 
   // Simulate live data updates
@@ -87,7 +86,6 @@ export function AppProvider({ children }) {
       incidents, addIncident, updateIncident,
       nodes, kpis,
       presentationMode, setPresentationMode,
-      sidebarCollapsed, setSidebarCollapsed,
       liveUpdates, setLiveUpdates,
     }}>
       {children}

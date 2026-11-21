@@ -238,8 +238,8 @@ export const notificationsData = [
 
 // ─── Route Options ─────────────────────────────────────────────────────────────
 export const demoRoutes = {
-  origin: 'Downtown Junction',
-  destination: 'Airport Expressway',
+  origin: 'Connaught Place, New Delhi',
+  destination: 'Indira Gandhi International Airport',
   routes: [
     {
       id: 'route-fastest',
@@ -248,12 +248,12 @@ export const demoRoutes = {
       distance: '12.4 km',
       duration: '24 min',
       congestion: 42,
-      coords: [[40.7128, -74.006], [40.7200, -73.998], [40.7300, -73.985], [40.6950, -73.820], [40.6413, -73.7781]],
-      via: ['5th Ave', 'Queens Blvd', 'Airport Expressway'],
+      coords: [[28.6315,77.2167], [28.6100,77.2050], [28.5890,77.1900], [28.5520,77.1450], [28.5562,77.1000]],
+      via: ['NH 48', 'Delhi-Gurugram Expressway', 'IGI Airport'],
       segments: [
-        { name: '5th Ave', congestion: 55, speed: 25 },
-        { name: 'Queens Blvd', congestion: 38, speed: 42 },
-        { name: 'Airport Express', congestion: 20, speed: 65 },
+        { name: 'Sardar Patel Marg', congestion: 55, speed: 25 },
+        { name: 'NH 48', congestion: 38, speed: 42 },
+        { name: 'Airport Expressway', congestion: 20, speed: 65 },
       ],
     },
     {
@@ -263,12 +263,12 @@ export const demoRoutes = {
       distance: '14.8 km',
       duration: '31 min',
       congestion: 28,
-      coords: [[40.7128, -74.006], [40.7400, -74.012], [40.7600, -73.950], [40.7100, -73.830], [40.6413, -73.7781]],
-      via: ['West Side Hwy', 'Cross Bronx', 'Van Wyck'],
+      coords: [[28.6315,77.2167], [28.6350,77.2300], [28.6020,77.1800], [28.5740,77.1300], [28.5562,77.1000]],
+      via: ['Ring Road', 'Rao Tula Ram Marg', 'IGI Airport'],
       segments: [
-        { name: 'West Side Hwy', congestion: 20, speed: 60 },
-        { name: 'Cross Bronx', congestion: 35, speed: 45 },
-        { name: 'Van Wyck', congestion: 25, speed: 55 },
+        { name: 'Ring Road', congestion: 20, speed: 60 },
+        { name: 'Rao Tula Ram Marg', congestion: 35, speed: 45 },
+        { name: 'Airport Road', congestion: 25, speed: 55 },
       ],
     },
     {
@@ -278,12 +278,12 @@ export const demoRoutes = {
       distance: '16.2 km',
       duration: '35 min',
       congestion: 18,
-      coords: [[40.7128, -74.006], [40.6900, -74.020], [40.6700, -73.950], [40.6500, -73.850], [40.6413, -73.7781]],
-      via: ['Brooklyn Bridge', 'Atlantic Ave', 'Belt Pkwy'],
+      coords: [[28.6315,77.2167], [28.6200,77.2050], [28.5900,77.1600], [28.5700,77.1200], [28.5562,77.1000]],
+      via: ['Arterial Road', 'Dwarka Expressway', 'IGI Airport'],
       segments: [
-        { name: 'Brooklyn Bridge', congestion: 22, speed: 40 },
-        { name: 'Atlantic Ave', congestion: 15, speed: 50 },
-        { name: 'Belt Pkwy', congestion: 12, speed: 70 },
+        { name: 'Arterial Road', congestion: 22, speed: 40 },
+        { name: 'Dwarka Link Road', congestion: 15, speed: 50 },
+        { name: 'Airport Link', congestion: 12, speed: 70 },
       ],
     },
   ],

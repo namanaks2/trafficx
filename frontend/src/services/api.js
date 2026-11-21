@@ -2,7 +2,12 @@
  * TrafficX API service layer.
  */
 
-const BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const BASE_URL = (
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV
+    ? 'http://localhost:8000'
+    : (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000'))
+).replace(/\/+$/, '');
 
 async function request(path, options = {}) {
   if (!BASE_URL) return null;
@@ -44,5 +49,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ origin, destination }),
     }),
+    geocode: (query) => request(`/api/routes/geocode?q=${encodeURIComponent(query)}`),
   },
 };

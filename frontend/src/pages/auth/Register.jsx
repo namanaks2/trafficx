@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Eye, EyeOff, Zap, AlertCircle, CheckCircle, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Zap, CheckCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const ROLES = [
@@ -64,14 +64,14 @@ export default function Register() {
             <Zap size={20} className="text-accent-blue" />
           </div>
           <div>
-            <div className="text-lg font-bold text-text-primary tracking-widest">TRAFFICX</div>
+            <div className="text-lg font-bold text-text-primary tracking-widest">MOBILITY COMMAND</div>
             <div className="text-[10px] text-text-muted tracking-widest uppercase">Intelligence Network</div>
           </div>
         </div>
 
         <div className="glass-card p-7 rounded-2xl">
           <h2 className="text-xl font-bold text-text-primary mb-1">Create account</h2>
-          <p className="text-sm text-text-secondary mb-6">Join the TrafficX intelligence network</p>
+          <p className="text-sm text-text-secondary mb-6">Create your mobility operations account</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Full Name */}

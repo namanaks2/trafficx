@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet';
 import { motion } from 'framer-motion';
-import { Navigation, Search, Zap, Leaf, Info } from 'lucide-react';
+import { Navigation, Search, Zap, Leaf, Info, LocateFixed } from 'lucide-react';
 import AppLayout from '../../components/layout/AppLayout';
 import CongestionBar from '../../components/ui/CongestionBar';
 import { demoRoutes } from '../../data/demoData';
@@ -39,8 +39,67 @@ export default function SmartRoutes() {
   const [loading,setLoading]  = useState(false);
   const [error, setError] = useState(null);
   const [source, setSource] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const [locationLabel, setLocationLabel] = useState('');
+  const [originSuggestions, setOriginSuggestions] = useState([]);
+  const [destinationSuggestions, setDestinationSuggestions] = useState([]);
+  const [suggestingFor, setSuggestingFor] = useState(null);
 
   const sel = routes?.find(r => r.id === selId) || routes?.[0];
+
+  useEffect(() => {
+    if (!api.configured) return undefined;
+    if (suggestingFor === 'origin' && origin.trim().length >= 3) {
+      const timer = setTimeout(async () => {
+        try {
+          const result = await api.routes.geocode(origin.trim());
+          setOriginSuggestions(result.locations?.slice(0, 5) || []);
+        } catch {
+          setOriginSuggestions([]);
+        }
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+    if (suggestingFor === 'destination' && dest.trim().length >= 3) {
+      const timer = setTimeout(async () => {
+        try {
+          const result = await api.routes.geocode(dest.trim());
+          setDestinationSuggestions(result.locations?.slice(0, 5) || []);
+        } catch {
+          setDestinationSuggestions([]);
+        }
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+    setOriginSuggestions([]);
+    setDestinationSuggestions([]);
+    return undefined;
+  }, [origin, dest, suggestingFor]);
+
+  const useLiveLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setError('Live location is not supported by this browser.');
+      return;
+    }
+
+    setLocating(true);
+    setError(null);
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setOrigin(`${lat.toFixed(6)},${lng.toFixed(6)}`);
+        setLocationLabel(`Live location · ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        setLocating(false);
+      },
+      geolocationError => {
+        setLocationLabel('');
+        setLocating(false);
+        setError(geolocationError.message || 'Could not access your live location.');
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 },
+    );
+  };
 
   const search = async (useDemo = false) => {
     const o = useDemo ? demoRoutes.origin : origin.trim();
@@ -66,12 +125,14 @@ export default function SmartRoutes() {
 
       const liveRoutes = result.routes.map((route, index) => ({
         id: route.id,
-        label: index === 0 ? 'Fastest Route' : `Alternative ${index}`,
-        type: index === 0 ? 'fastest' : 'alternative',
+        label: index === 0 ? 'Fastest & least delayed' : `Alternative ${index}`,
+        type: index === 0 ? 'fastest' : index === 1 ? 'alternative' : 'eco',
         distance: `${(route.distance_m / 1000).toFixed(1)} km`,
         duration: formatDuration(route.travel_time_s),
         trafficDelay: formatDelay(route.traffic_delay_s),
         coords: route.coordinates,
+        instructions: route.instructions || [],
+        trafficSegments: route.traffic_segments || [],
         isLive: true,
       }));
       setRoutes(liveRoutes);
@@ -95,13 +156,41 @@ export default function SmartRoutes() {
       <div className="glass-card p-4 mb-4 space-y-3">
         <div className="relative">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-status-success" />
-          <input className="input-field pl-8 text-sm" placeholder="From…" value={origin} onChange={e=>setOrigin(e.target.value)} />
+          <input className="input-field pl-8 text-sm" placeholder="From…" value={origin} onFocus={() => setSuggestingFor('origin')} onChange={e=>{ setOrigin(e.target.value); setSuggestingFor('origin'); }} />
+          {suggestingFor === 'origin' && originSuggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-52 overflow-y-auto rounded-xl border border-border-subtle bg-bg-card p-1 shadow-card-hover">
+              {originSuggestions.map(location => (
+                <button key={`${location.lat}-${location.lng}`} type="button" onMouseDown={() => { setOrigin(location.label); setOriginSuggestions([]); setSuggestingFor(null); }}
+                  className="block w-full rounded-lg px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-elevated hover:text-text-primary">
+                  {location.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="relative">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-status-critical" />
-          <input className="input-field pl-8 text-sm" placeholder="To…" value={dest} onChange={e=>setDest(e.target.value)} />
+          <input className="input-field pl-8 text-sm" placeholder="To…" value={dest} onFocus={() => setSuggestingFor('destination')} onChange={e=>{ setDest(e.target.value); setSuggestingFor('destination'); }} />
+          {suggestingFor === 'destination' && destinationSuggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-52 overflow-y-auto rounded-xl border border-border-subtle bg-bg-card p-1 shadow-card-hover">
+              {destinationSuggestions.map(location => (
+                <button key={`${location.lat}-${location.lng}`} type="button" onMouseDown={() => { setDest(location.label); setDestinationSuggestions([]); setSuggestingFor(null); }}
+                  className="block w-full rounded-lg px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-elevated hover:text-text-primary">
+                  {location.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
+          <button onClick={useLiveLocation} disabled={locating}
+            className="btn-secondary px-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+            title="Use live GPS location">
+            {locating
+              ? <span className="w-4 h-4 border-2 border-text-muted/30 border-t-text-muted rounded-full animate-spin" />
+              : <LocateFixed size={15} />}
+            <span className="hidden sm:inline">Live location</span>
+          </button>
           <button onClick={() => search(false)} disabled={loading||!origin||!dest}
             className="flex-1 btn-primary flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold">
             {loading ? <span className="w-4 h-4 border-2 border-bg-primary/30 border-t-bg-primary rounded-full animate-spin" />
@@ -110,6 +199,7 @@ export default function SmartRoutes() {
           <button onClick={() => search(true)}
             className="btn-secondary px-4 rounded-xl text-sm font-semibold">Demo</button>
         </div>
+        {locationLabel && <p className="text-[10px] font-medium text-status-success">{locationLabel}</p>}
       </div>
 
       {error && (
@@ -123,7 +213,9 @@ export default function SmartRoutes() {
         <Info size={12} className="shrink-0" />
         {source === 'tomtom'
           ? 'TomTom calculated these routes using current traffic estimates.'
-          : 'Search uses TomTom traffic-aware routing. Demo loads sample routes.'}
+          : source === 'osrm'
+            ? 'Live road routing is available. Live traffic-provider data is unavailable for this route.'
+            : 'Search uses live geocoding and road routing. Demo loads sample routes.'}
       </div>
 
       {!routes ? (
@@ -146,6 +238,15 @@ export default function SmartRoutes() {
                   <Popup><div style={{fontFamily:'Inter,sans-serif',fontSize:11}}><strong>{r.label}</strong><br/>{r.duration} · {r.distance}</div></Popup>
                 </Polyline>
               ))}
+              {sel?.trafficSegments?.map((segment, index) => {
+                const trafficColor = segment.congestion >= 75 ? '#EF4444' : segment.congestion >= 55 ? '#F59E0B' : '#22C55E';
+                return (
+                  <Polyline key={`traffic-${index}`} positions={segment.coordinates}
+                    pathOptions={{ color: trafficColor, weight: 7, opacity: 0.9 }}>
+                    <Popup><div style={{fontFamily:'Inter,sans-serif',fontSize:11}}><strong>{segment.category || 'Traffic'}</strong><br/>Congestion: {segment.congestion}%</div></Popup>
+                  </Polyline>
+                );
+              })}
               <CircleMarker center={routes[0].coords[0]} radius={7} pathOptions={{ color:'#22C55E',fillColor:'#22C55E',fillOpacity:1 }}><Popup>Origin</Popup></CircleMarker>
               <CircleMarker center={routes[0].coords[routes[0].coords.length-1]} radius={7} pathOptions={{ color:'#EF4444',fillColor:'#EF4444',fillOpacity:1 }}><Popup>Destination</Popup></CircleMarker>
             </MapContainer>
@@ -192,12 +293,26 @@ export default function SmartRoutes() {
           {/* Road conditions for selected route */}
           {sel && (
             <div className="glass-card p-4">
-              <h3 className="text-sm font-semibold text-text-primary mb-3">{sel.isLive ? 'TomTom Traffic Estimate' : 'Road Conditions'}</h3>
+              <h3 className="text-sm font-semibold text-text-primary mb-3">{sel.isLive ? 'Live Route Directions' : 'Road Conditions'}</h3>
               {sel.isLive ? (
-                <p className="text-xs text-text-secondary">
-                  Estimated extra travel time from current traffic: <strong>{sel.trafficDelay}</strong>.
-                  The route duration is traffic-aware.
-                </p>
+                sel.instructions?.length ? (
+                  <ol className="space-y-2">
+                    {sel.instructions.slice(0, 12).map((step, index) => (
+                      <li key={`${index}-${step.instruction}`} className="flex items-start gap-3 rounded-xl border border-border-subtle bg-bg-secondary px-3 py-2.5">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-blue/10 text-[10px] font-bold text-accent-blue">{index + 1}</span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-text-primary">{step.instruction}</p>
+                          {step.distance_m > 0 && <p className="mt-0.5 text-[10px] text-text-muted">{(step.distance_m / 1000).toFixed(1)} km</p>}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-xs text-text-secondary">
+                    The live route is ready. Continue along the highlighted road toward <strong>{dest}</strong>.
+                    Estimated extra travel time: <strong>{sel.trafficDelay}</strong>.
+                  </p>
+                )
               ) : (
                 <div className="space-y-2.5">
                   {sel.segments.map((seg,i) => (

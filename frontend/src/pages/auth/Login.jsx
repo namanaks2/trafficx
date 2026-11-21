@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, EyeOff, Zap, AlertCircle, ArrowRight, Activity, Network, Shield, X, Mail } from 'lucide-react';
+import { Eye, EyeOff, Zap, AlertCircle, ArrowRight, Activity, Network, Shield, Mail } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import ViewToggle from '../../components/ui/ViewToggle';
 
 function TrafficAnimation() {
   return (
@@ -141,25 +140,26 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-bg-primary flex">
       {/* Left — Form */}
-      <div className="w-full lg:w-[45%] flex flex-col justify-center px-6 md:px-12 lg:px-16 py-12">
+      <div className="w-full lg:w-[44%] flex flex-col justify-center px-5 sm:px-10 lg:px-16 py-8 sm:py-12">
         <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
           {/* Logo */}
           <div className="flex items-center justify-between gap-3 mb-8">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-accent-blue/20 border border-accent-blue/40 flex items-center justify-center shadow-glow-blue">
-                <Zap size={20} className="text-accent-blue" />
+              <div className="relative w-12 h-12 rounded-2xl border border-[#412D15]/30 bg-[#412D15] flex items-center justify-center overflow-hidden shadow-[0_12px_30px_rgba(65,45,21,.22)]">
+                <span className="absolute h-8 w-2.5 -translate-x-1.5 rotate-[32deg] rounded-sm bg-[#E1DCC9]" />
+                <span className="absolute h-8 w-2.5 translate-x-1.5 rotate-[32deg] rounded-sm bg-[#EF4444]" />
+                <span className="h-2 w-2 rounded-full bg-white ring-2 ring-[#412D15]" />
               </div>
               <div>
                 <div className="text-lg font-bold text-text-primary tracking-widest">TRAFFICX</div>
                 <div className="text-[10px] text-text-muted tracking-widest uppercase">Intelligence Network</div>
               </div>
             </div>
-            {/* View mode toggle — visible on login page */}
-            <ViewToggle variant="login" />
           </div>
 
-          <h2 className="text-2xl font-bold text-text-primary mb-1">Welcome back</h2>
-          <p className="text-sm text-text-secondary mb-8">Sign in to your command center</p>
+          <p className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Secure operations access</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-text-primary mb-2">Welcome back.</h2>
+          <p className="text-sm md:text-base text-text-secondary mb-8">Sign in to the TrafficX command center.</p>
 
           {/* Error */}
           {error && (
@@ -241,17 +241,17 @@ export default function Login() {
       </div>
 
       {/* Right — Visualization */}
-      <div className="hidden lg:flex lg:w-[55%] relative overflow-hidden border-l border-border-subtle">
-        <div className="absolute inset-0 bg-bg-secondary" />
-        <div className="absolute inset-0 bg-gradient-radial from-accent-blue/5 via-transparent to-transparent" />
+      <div className="hidden lg:flex lg:w-[56%] relative overflow-hidden border-l border-border-subtle">
+        <div className="absolute inset-0 bg-[#000000]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(225,220,201,.16),transparent_38%),radial-gradient(circle_at_20%_80%,rgba(65,45,21,.38),transparent_34%)]" />
         <TrafficAnimation />
 
         <div className="absolute top-8 left-8 right-8">
-          <h3 className="text-xl font-bold text-text-primary leading-tight">
+          <h3 className="text-2xl font-bold text-white leading-tight">
             Decentralized Real-Time<br />
-            <span className="text-gradient-blue">Traffic Intelligence</span>
+            <span className="text-[#E1DCC9]">Traffic Intelligence</span>
           </h3>
-          <p className="text-sm text-text-secondary mt-2 max-w-xs">
+          <p className="text-sm text-white/65 mt-3 max-w-sm">
             Monitor, predict, and respond to traffic events across your entire city network.
           </p>
         </div>

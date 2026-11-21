@@ -2,7 +2,6 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
-import { ViewModeProvider } from './context/ViewModeContext';
 import { ThemeProvider } from './context/ThemeContext';
 import MobileFrame from './components/ui/MobileFrame';
 
@@ -25,7 +24,7 @@ function PageLoading() {
     <div className="min-h-screen bg-bg-primary flex items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <div className="w-10 h-10 border-2 border-accent-blue/30 border-t-accent-blue rounded-full animate-spin" />
-        <p className="text-text-muted text-sm">Loading TrafficX...</p>
+        <p className="text-text-muted text-sm">Loading command center...</p>
       </div>
     </div>
   );
@@ -70,7 +69,6 @@ export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
-        <ViewModeProvider>
           <AuthProvider>
             <AppProvider>
               <MobileFrame>
@@ -78,7 +76,6 @@ export default function App() {
               </MobileFrame>
             </AppProvider>
           </AuthProvider>
-        </ViewModeProvider>
       </ThemeProvider>
     </BrowserRouter>
   );
